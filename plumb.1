@@ -1,0 +1,305 @@
+.Dd October 3, 2022
+.Dt PROG 1
+.Os
+.Sh NAME
+.Nm plumb
+.Nd run command on arguments matching rules
+.Sh SYNOPSIS
+.Nm prog
+.Op Fl eon
+.Ar arg ...
+.Sh DESCRIPTION
+.Nm
+pass the given arguments, as is or modified,
+to the best program associated to the rules the arguments match with.
+.Pp
+.Nm
+can be used, for example, to open files or URLs.
+By giving filenames as arguments,
+.Nm
+tries to find the best program to open them
+after matching the filenames with sets of rules in sequence.
+See the section
+.Sx "EXAMPLES"
+for examples on usage.
+.Pp
+Each set of rule is associated with a program for a given type of action
+(such as
+.Dq "open"
+or
+.Dq "edit" ) .
+The program for the chosen action associated with the first set of rules matching the arguments
+is the one chosen to be run.
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl e
+The action is to 
+.Dq edit .
+.It Fl o
+The action is to 
+.Dq open .
+This is the default action.
+.It Fl n
+Dry-run.
+When this option is given,
+.Nm
+does not executes the matched program, but prints what would be executed to standard output.
+.El
+.Sh USAGE
+.Nm
+reads rules from the file
+.Pa "$HOME/lib/plumb".
+Lines with blank and lines beginning with
+.Dq "#" are ignored.
+.Pp
+Each non ignored line can be of four types, named by the second word in the line:
+.Bl -tag -width Ds
+.It Dq "for"
+A line beginning a rule set.
+.It Dq "matches"
+A line describing a condition a variable has to match,
+and, optionally, setting new variables when the matching occurs.
+.It Dq "types"
+A line testing the existence and type of a file,
+and assigning this information to a new variable.
+.It Dq "with"
+A line describing the command to be open if the conditions in the same ruleset matches.
+.El
+.Pp
+Each line is a sequence of words
+(which are either space-delimited words or
+strings quoted in
+.Xr rc 1
+single-quote style).
+The first word of a line is the
+.Dq "subject" .
+The second word (which identifies the type of the line) is the
+.Dq "predicate" .
+The remaining words are the arguments.
+.Pp
+The configuration is processed once for each argument.
+For each processing pass, the variable
+.Ic data
+is set to the argument itself.
+.Pp
+Environment variables can occur on the configuration file outside quotations,
+and are replaced with its values.
+Environment variables are prefixed with the dollar sign
+.Dq "$" .
+The dollar sign can be escaped by doubling it.
+The name of the environment variable can also occur between curly braces.
+.Ss FOR-lines
+Lines whose second word is
+.Dq "for"
+must have
+.Dq "rules"
+as subject (first word in the line).
+They begin a new rule set.
+A rule set is everything between a
+.Dq FOR-line
+and the next one.
+.Pp
+The arguments of a
+.Dq FOR-line
+is the name of the rule set.
+When a rule set is matched for all the arguments,
+its name is printed to standard output.
+.Pp
+Conditions in a rule set are only checked within the rule set.
+Variables set in a rule set are only valid within the rule set.
+.Pp
+The lines before the first
+.Dq FOR-line
+make the global, unamed rule set.
+Conditions in the global rule set are ignored.
+Variables set in the global rule set are valid for the entire file.
+.Ss MATCHES-lines
+Lines whose second word is
+.Dq "matches"
+must have the name of a variable as subject (first word in the line).
+They must also have a regular expression as first argument.
+The subject names a value that must match the regular expression.
+.Pp
+For example, the following line is a three-word condition that
+says that one of the conditions for the current rule set to be matched
+is for the content of the variable
+.Ic mime
+to match the regular expression
+.Ic "image/(jpeg|png)" .
+.Bd -literal -offset indent
+mime matches 'image/(jpeg|png)'
+.Ed
+.Pp
+The regular expression is a extended POSIX regular expression
+and must match the entire value of the variable for the condition to be valid.
+.Pp
+If the rule has more than one argument, the second argument must be
+.Ic into
+and the following ones must be the name of variables to be set.
+Each variable is set to the substring matching the parenthesized subexpression
+of the regular expression if, and only if, the full regular expression matches
+the value of the subject.
+.Pp
+For example, the following line assigns to the variable
+.Ic basename
+the
+.Xr basename 1
+of the value on the variable
+.Ic data
+(supposing it contains a filename) ;
+and assigns to the variable
+.Ic extension
+the extension of the filename.
+If either subexpression does not match, the corresponding variable is
+set to the empty string.
+The dummy variable name
+.Ic _
+(underscore) is used for uneeded values.
+.Bd -literal -offset indent
+data matches '(([^/]*/)*)([^/]*(\e.([A-Za-z0-9]+)?))' _ _ base extension
+.Ed
+.Ss TYPES-lines
+Lines whose second word is
+.Dq "types"
+must have the name of a variable as subject,
+and the name of another variable as single argument.
+The subject names a value for a existing file whose mimetype is assigned
+to the variable passed as argument.
+.Pp
+For example, the following line is a three-word assignment that says
+that the mimetype of the file named in the variable
+.Ic "data"
+must be assigned to the variable
+.Ic "mime".
+.Bd -literal -offset indent
+data types mime
+.Ed
+.Ss WITH-lines
+Lines whose second word is
+.Dq "with"
+must have the name of an action type
+(either
+.Ic "open"
+or
+.Ic "edit" ) .
+as subject and a command invocation as arguments.
+The arguments name a program to be run for the action named as subject
+when the rule set the line is in is valid for all the arguments passed.
+.Pp
+for example, the following line is a three-word description to open the browser
+.Xr firefox 1
+on the
+.Ic open
+action.
+.Bd -literal -offset indent
+open with firefox
+.Ed
+.Pp
+If the last argument has a percent symbol
+.Pq Dq "%"
+before a name,
+then this name is considered as a variable name.
+This argument is replaced by one argument for each argument passed
+and the variable name with the percent sign is replaced with the value of the variable.
+.Pp
+For example, the following line opens
+.Xr firefox 1
+replacing the argument
+.Ic "file://%data"
+for the variable
+.Ic "data"
+for each argument.
+(so if
+.Nm
+is invoked for
+.Pa "./index.html"
+and
+.Pa "path/to/file.html" ,
+then that single argument is replaced with
+.Pa "file://./index.html"
+and
+.Pa "file://path/to/file.html" ) .
+.Bd -literal -offset indent
+open with firefox -- file://%data
+.Ed
+.Pp
+Just like environment variables, the percent sign can be escaped by doubling it.
+The name of the variable can also occur between curly braces.
+.Sh ENVIRONMENT
+The following environment variables affect the execution of
+.Nm Ns .
+.Bl -tag -width Ds
+.It Ev HOME
+Path to the directory to search for the file
+.Pa "lib/plumb" .
+It is an error for this variable to not be set.
+.El
+.Sh FILES
+.Bl -tag -width Ds
+.It Pa "$HOME/lib/plumb"
+.Nm Ns 's
+configuration file.
+.El
+.Sh EXIT STATUS
+.Ex
+.Pp
+It is an error if no rule set matches for an argument.
+.Sh EXAMPLES
+The following is the example of a simple configuration file.
+.Bd -literal -offset indent
+data     matches     '(([A-Za-z]+):(//)?)?(.*(\e.([A-Za-z0-9]+))?)' into _ protocol _ file _ extension
+file     types       mime
+
+rules    for         youtube video
+protocol matches     '(ytdl|https?)?'
+file     matches     '(.*/)?[A-Za-z0-9_-]{11}'
+open     with        mpv --force-window=immediate -- ytdl://%file
+
+rules    for         html file
+protocol matches     '(file)?'
+mime     matches     'text/html'
+open     with        seamonkey -- file://%file
+edit     with        $TERMCMD -e $EDITOR -- %file
+
+rules    for          web page
+protocol matches     '(https?)?'
+file     matches     '(www\e.)?.*\e.(com|net|org|us)'
+open     with        seamonkey -- %data
+.Ed
+.Pp
+For each passed argument, the first paragraph sets the variables
+.Ic protocol
+protocol to an URI protocol;
+.Ic file
+to the argument without the protocol;
+.Ic extension
+to a file extension; and
+.Ic mime
+to the mimetype of the value of
+.Ic file .
+The variable
+.Ic data
+is set to the argument itself on each pass.
+.Pp
+The second paragraph sets rules for opening youtube videos on
+.Xr mpv 1
+using the
+.Ic ytdl
+protocol.
+.Pp
+The third paragraph sets rules for opening and editing html files.
+.Pp
+The fourth paragraph sets rules for opening web pages.
+.Sh SEE ALSO
+.Rs
+.%A "Rob Pike"
+.%T "Plumbing and Other Utilities"
+.%I "Bell Laboratories"
+.Re
+.Sh HISTORY
+A
+.Nm
+utility appeared in the Plan 9 operating system.
+.Sh BUGS
+Yes.
