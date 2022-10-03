@@ -19,6 +19,9 @@ ${PROG}: ${OBJS}
 .c.o:
 	${CC} ${INCS} ${CFLAGS} ${CPPFLAGS} -c $<
 
+README: plumb.1
+	man -l plumb.1 | sed 's/.//g' >README
+
 tags: ${SRCS}
 	ctags ${SRCS}
 

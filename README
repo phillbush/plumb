@@ -1,3 +1,211 @@
-                    seninha's plumber/opener utility
+PROG(1)                     General Commands Manual                    PROG(1)
 
-                          Depends on libmagic.
+NAME
+     plumb – run command on arguments matching rules
+
+SYNOPSIS
+     prog [-eon] arg ...
+
+DESCRIPTION
+     plumb pass the given arguments, as is or modified, to the best program
+     associated to the rules the arguments match with.
+
+     plumb can be used, for example, to open files or URLs.  By giving
+     filenames as arguments, plumb tries to find the best program to open them
+     after matching the filenames with sets of rules in sequence.  See the
+     section EXAMPLES for examples on usage.
+
+     Each set of rule is associated with a program for a given type of action
+     (such as “open” or “edit”).  The program for the chosen action associated
+     with the first set of rules matching the arguments is the one chosen to
+     be run.
+
+     The options are as follows:
+
+     -e      The action is to “edit”.
+
+     -o      The action is to “open”.  This is the default action.
+
+     -n      Dry-run.  When this option is given, plumb does not executes the
+             matched program, but prints what would be executed to standard
+             output.
+
+USAGE
+     plumb reads rules from the file $HOME/lib/plumb.  Lines with blank and
+     lines beginning with “# are ignored.”
+
+     Each non ignored line can be of four types, named by the second word in
+     the line:
+
+     “for”   A line beginning a rule set.
+
+     “matches”
+             A line describing a condition a variable has to match, and,
+             optionally, setting new variables when the matching occurs.
+
+     “types”
+             A line testing the existence and type of a file, and assigning
+             this information to a new variable.
+
+     “with”  A line describing the command to be open if the conditions in the
+             same ruleset matches.
+
+     Each line is a sequence of words (which are either space-delimited words
+     or strings quoted in rc(1) single-quote style).  The first word of a line
+     is the “subject”.  The second word (which identifies the type of the
+     line) is the “predicate”.  The remaining words are the arguments.
+
+     The configuration is processed once for each argument.  For each
+     processing pass, the variable data is set to the argument itself.
+
+     Environment variables can occur on the configuration file outside
+     quotations, and are replaced with its values.  Environment variables are
+     prefixed with the dollar sign “$”.  The dollar sign can be escaped by
+     doubling it.  The name of the environment variable can also occur between
+     curly braces.
+
+   FOR-lines
+     Lines whose second word is “for” must have “rules” as subject (first word
+     in the line).  They begin a new rule set.  A rule set is everything
+     between a “FOR-line” and the next one.
+
+     The arguments of a “FOR-line” is the name of the rule set.  When a rule
+     set is matched for all the arguments, its name is printed to standard
+     output.
+
+     Conditions in a rule set are only checked within the rule set.  Variables
+     set in a rule set are only valid within the rule set.
+
+     The lines before the first “FOR-line” make the global, unamed rule set.
+     Conditions in the global rule set are ignored.  Variables set in the
+     global rule set are valid for the entire file.
+
+   MATCHES-lines
+     Lines whose second word is “matches” must have the name of a variable as
+     subject (first word in the line).  They must also have a regular
+     expression as first argument.  The subject names a value that must match
+     the regular expression.
+
+     For example, the following line is a three-word condition that says that
+     one of the conditions for the current rule set to be matched is for the
+     content of the variable mime to match the regular expression
+     image/(jpeg|png).
+
+           mime matches 'image/(jpeg|png)'
+
+     The regular expression is a extended POSIX regular expression and must
+     match the entire value of the variable for the condition to be valid.
+
+     If the rule has more than one argument, the second argument must be into
+     and the following ones must be the name of variables to be set.  Each
+     variable is set to the substring matching the parenthesized subexpression
+     of the regular expression if, and only if, the full regular expression
+     matches the value of the subject.
+
+     For example, the following line assigns to the variable basename the
+     basename(1) of the value on the variable data (supposing it contains a
+     filename) ; and assigns to the variable extension the extension of the
+     filename.  If either subexpression does not match, the corresponding
+     variable is set to the empty string.  The dummy variable name _
+     (underscore) is used for uneeded values.
+
+           data matches '(([^/]*/)*)([^/]*(\.([A-Za-z0-9]+)?))' _ _ base extension
+
+   TYPES-lines
+     Lines whose second word is “types” must have the name of a variable as
+     subject, and the name of another variable as single argument.  The
+     subject names a value for a existing file whose mimetype is assigned to
+     the variable passed as argument.
+
+     For example, the following line is a three-word assignment that says that
+     the mimetype of the file named in the variable data must be assigned to
+     the variable mime.
+
+           data types mime
+
+   WITH-lines
+     Lines whose second word is “with” must have the name of an action type
+     (either open or edit).  as subject and a command invocation as arguments.
+     The arguments name a program to be run for the action named as subject
+     when the rule set the line is in is valid for all the arguments passed.
+
+     for example, the following line is a three-word description to open the
+     browser firefox(1) on the open action.
+
+           open with firefox
+
+     If the last argument has a percent symbol (“%”) before a name, then this
+     name is considered as a variable name.  This argument is replaced by one
+     argument for each argument passed and the variable name with the percent
+     sign is replaced with the value of the variable.
+
+     For example, the following line opens firefox(1) replacing the argument
+     file://%data for the variable data for each argument.  (so if plumb is
+     invoked for ./index.html and path/to/file.html, then that single argument
+     is replaced with file://./index.html and file://path/to/file.html).
+
+           open with firefox -- file://%data
+
+     Just like environment variables, the percent sign can be escaped by
+     doubling it.  The name of the variable can also occur between curly
+     braces.
+
+ENVIRONMENT
+     The following environment variables affect the execution of plumb.
+
+     HOME    Path to the directory to search for the file lib/plumb.  It is an
+             error for this variable to not be set.
+
+FILES
+     $HOME/lib/plumb
+             plumb's configuration file.
+
+EXIT STATUS
+     The plumb utility exits 0 on success, and >0 if an error occurs.
+
+     It is an error if no rule set matches for an argument.
+
+EXAMPLES
+     The following is the example of a simple configuration file.
+
+           data     matches     '(([A-Za-z]+):(//)?)?(.*(\.([A-Za-z0-9]+))?)' into _ protocol _ file _ extension
+           file     types       mime
+
+           rules    for         youtube video
+           protocol matches     '(ytdl|https?)?'
+           file     matches     '(.*/)?[A-Za-z0-9_-]{11}'
+           open     with        mpv --force-window=immediate -- ytdl://%file
+
+           rules    for         html file
+           protocol matches     '(file)?'
+           mime     matches     'text/html'
+           open     with        seamonkey -- file://%file
+           edit     with        $TERMCMD -e $EDITOR -- %file
+
+           rules    for          web page
+           protocol matches     '(https?)?'
+           file     matches     '(www\.)?.*\.(com|net|org|us)'
+           open     with        seamonkey -- %data
+
+     For each passed argument, the first paragraph sets the variables protocol
+     protocol to an URI protocol; file to the argument without the protocol;
+     extension to a file extension; and mime to the mimetype of the value of
+     file.  The variable data is set to the argument itself on each pass.
+
+     The second paragraph sets rules for opening youtube videos on mpv(1)
+     using the ytdl protocol.
+
+     The third paragraph sets rules for opening and editing html files.
+
+     The fourth paragraph sets rules for opening web pages.
+
+SEE ALSO
+     Rob Pike, Plumbing and Other Utilities, Bell Laboratories.
+
+HISTORY
+     A plumb utility appeared in the Plan 9 operating system.
+
+BUGS
+     Yes.
+
+OpenBSD 7.2                     October 3, 2022                    OpenBSD 7.2
