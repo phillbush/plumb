@@ -30,8 +30,8 @@ clean:
 
 install: all
 	install -d ${DESTDIR}${PREFIX}/bin
-	install -d ${DESTDIR}${MANPREFIX}/man1
-	#install -m 755 ${PROG} ${DESTDIR}${PREFIX}/bin/${PROG}
+	#install -d ${DESTDIR}${MANPREFIX}/man1
+	install -m 755 ${PROG} ${DESTDIR}${PREFIX}/bin/${PROG}
 	#install -m 644 ${PROG}.1 ${DESTDIR}${MANPREFIX}/man1/${PROG}.1
 
 uninstall:

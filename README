@@ -13,12 +13,12 @@ DESCRIPTION
      plumb can be used, for example, to open files or URLs.  By giving
      filenames as arguments, plumb tries to find the best program to open them
      after matching the filenames with sets of rules in sequence.  See the
-     section EXAMPLES for examples on usage.
+     section EXAMPLES for an example on usage.
 
-     Each set of rule is associated with a program for a given type of action
-     (such as “open” or “edit”).  The program for the chosen action associated
-     with the first set of rules matching the arguments is the one chosen to
-     be run.
+     Each set of rule (or ruleset) is associated with a program for a given
+     type of action (such as “open” or “edit”).  The program for the given
+     action associated with the first ruleset matching the arguments is the
+     one chosen to be run.
 
      The options are as follows:
 
@@ -34,10 +34,11 @@ USAGE
      plumb reads rules from the file $HOME/lib/plumb.  Lines with blank and
      lines beginning with “# are ignored.”
 
-     Each non ignored line can be of four types, named by the second word in
-     the line:
+     Each non ignored line can be either a static variable assignment or can
+     be one of the four following types, named after the second word in the
+     line:
 
-     “for”   A line beginning a rule set.
+     “for”   A line beginning a ruleset.
 
      “matches”
              A line describing a condition a variable has to match, and,
@@ -50,35 +51,69 @@ USAGE
      “with”  A line describing the command to be open if the conditions in the
              same ruleset matches.
 
+     There are two kinds of variables that can be assigned and used in the
+     configuration file:
+
+     Static variables
+             Static variables are assigned with a “NAME=VALUE” line.  Such
+             variables are expanded into a single word when prefixed with a
+             dollar sign ($) and occurring in any line after the place it was
+             defined.  Environment variables are of this kind, but do not need
+             to be defined.  See the section Static variables for more
+             information on static variables.
+
+     Argument variables
+             Argument variables are assigned with a “matches” or a “types”
+             line.  Such variables can be expanded into various words (one for
+             each argument passed to plumb) when prefixed with a percent sign
+             (%) and occurring as the last argument of a “with” line in the
+             same ruleset it was defined.  See the section WITH-lines for more
+             information on argument variables.
+
      Each line is a sequence of words (which are either space-delimited words
      or strings quoted in rc(1) single-quote style).  The first word of a line
      is the “subject”.  The second word (which identifies the type of the
-     line) is the “predicate”.  The remaining words are the arguments.
+     line) is the “verb”.  The remaining words are the arguments.
 
      The configuration is processed once for each argument.  For each
-     processing pass, the variable data is set to the argument itself.
+     processing pass, the argument variable data is set to the argument itself
+     and the remaining argument variables are re-assigned.  Static variables
+     are assigned only once, at plumb initialization.
 
-     Environment variables can occur on the configuration file outside
-     quotations, and are replaced with its values.  Environment variables are
-     prefixed with the dollar sign “$”.  The dollar sign can be escaped by
-     doubling it.  The name of the environment variable can also occur between
-     curly braces.
+   Static variables
+     Lines of the form “NAME=VALUE” assign a value to a static variable.
+     Static variable are recognized anywhere in the file after the place they
+     are defined.
+
+     Environment variables are also static variables, but they are not defined
+     in the config file (they are already defined in the environment).
+
+     References to static variables can occur on the configuration file
+     outside quotations, and are replaced with their values.  Such references
+     are prefixed with the dollar sign “$” or prefixed with the dollar sign
+     and surrounded by curly braces.  The dollar sign can be escaped by
+     doubling it.
 
    FOR-lines
-     Lines whose second word is “for” must have “rules” as subject (first word
-     in the line).  They begin a new rule set.  A rule set is everything
-     between a “FOR-line” and the next one.
+     Lines whose second word is “for” must have “rules” as subject.  They
+     begin a new ruleset.  A ruleset is everything between a “FOR-line” and
+     the next one.
 
-     The arguments of a “FOR-line” is the name of the rule set.  When a rule
-     set is matched for all the arguments, its name is printed to standard
+     For example, the following line begins the ruleset for handling video
+     files:
+
+           rules for video files
+
+     The arguments of a “FOR-line” are the name of the ruleset.  When a
+     ruleset is matched for all the arguments, its name is printed to standard
      output.
 
-     Conditions in a rule set are only checked within the rule set.  Variables
-     set in a rule set are only valid within the rule set.
+     Conditions in a ruleset are only checked within the ruleset.  Variables
+     set in a ruleset are only valid within the ruleset.
 
-     The lines before the first “FOR-line” make the global, unamed rule set.
-     Conditions in the global rule set are ignored.  Variables set in the
-     global rule set are valid for the entire file.
+     The lines before the first “FOR-line” make the global, unamed ruleset.
+     Conditions in the global ruleset are ignored.  Variables set in the
+     global ruleset are valid for the entire file.
 
    MATCHES-lines
      Lines whose second word is “matches” must have the name of a variable as
@@ -87,39 +122,40 @@ USAGE
      the regular expression.
 
      For example, the following line is a three-word condition that says that
-     one of the conditions for the current rule set to be matched is for the
+     one of the conditions for the current ruleset to be matched is for the
      content of the variable mime to match the regular expression
      image/(jpeg|png).
 
            mime matches 'image/(jpeg|png)'
 
      The regular expression is a extended POSIX regular expression and must
-     match the entire value of the variable for the condition to be valid.
+     match the entire value of the argument variable for the condition to be
+     valid.
 
      If the rule has more than one argument, the second argument must be into
-     and the following ones must be the name of variables to be set.  Each
-     variable is set to the substring matching the parenthesized subexpression
-     of the regular expression if, and only if, the full regular expression
-     matches the value of the subject.
+     and the following ones must be names of argument variables to be set.
+     Each argument variable is set to the substring matching the parenthesized
+     subexpression of the regular expression if, and only if, the full regular
+     expression matches the value of the subject.
 
-     For example, the following line assigns to the variable basename the
-     basename(1) of the value on the variable data (supposing it contains a
-     filename) ; and assigns to the variable extension the extension of the
-     filename.  If either subexpression does not match, the corresponding
-     variable is set to the empty string.  The dummy variable name _
-     (underscore) is used for uneeded values.
+     For example, the following line assigns to the argument variable base the
+     basename(1) of the value on the argument variable data (supposing it
+     contains a filename); and assigns to the argument variable extension the
+     extension of the filename.  If either subexpression does not match, the
+     corresponding argument variable is set to the empty string.  The dummy
+     argument variable name _ (underscore) is used for uneeded values.
 
            data matches '(([^/]*/)*)([^/]*(\.([A-Za-z0-9]+)?))' _ _ base extension
 
    TYPES-lines
-     Lines whose second word is “types” must have the name of a variable as
-     subject, and the name of another variable as single argument.  The
-     subject names a value for a existing file whose mimetype is assigned to
-     the variable passed as argument.
+     Lines whose second word is “types” must have the name of a argument
+     variable as subject, and the name of another argument variable as single
+     argument.  The subject names a value for a existing file whose mimetype
+     is assigned to the argument variable passed as argument.
 
      For example, the following line is a three-word assignment that says that
-     the mimetype of the file named in the variable data must be assigned to
-     the variable mime.
+     the mimetype of the file named in the argument variable data must be
+     assigned to the argument variable mime.
 
            data types mime
 
@@ -127,7 +163,7 @@ USAGE
      Lines whose second word is “with” must have the name of an action type
      (either open or edit).  as subject and a command invocation as arguments.
      The arguments name a program to be run for the action named as subject
-     when the rule set the line is in is valid for all the arguments passed.
+     when the ruleset the line is in is valid for all the arguments passed.
 
      for example, the following line is a three-word description to open the
      browser firefox(1) on the open action.
@@ -141,8 +177,9 @@ USAGE
 
      For example, the following line opens firefox(1) replacing the argument
      file://%data for the variable data for each argument.  (so if plumb is
-     invoked for ./index.html and path/to/file.html, then that single argument
-     is replaced with file://./index.html and file://path/to/file.html).
+     invoked for ./index.html and /path/to/file.html, then that single
+     argument is replaced with file://./index.html and
+     file:///path/to/file.html).
 
            open with firefox -- file://%data
 
@@ -163,16 +200,19 @@ FILES
 EXIT STATUS
      The plumb utility exits 0 on success, and >0 if an error occurs.
 
-     It is an error if no rule set matches for an argument.
+     It is an error if no ruleset matches for an argument.
 
 EXAMPLES
      The following is the example of a simple configuration file.
 
-           data     matches     '(([A-Za-z]+):(//)?)?(.*(\.([A-Za-z0-9]+))?)' into _ protocol _ file _ extension
+           HTTP      = '(https?)'
+           DATAREGEX = '(([A-Za-z]+):(//)?)?(.*(\.([A-Za-z0-9]+))?)'
+
+           data     matches     $DATAREGEX into _ protocol _ file _ extension
            file     types       mime
 
            rules    for         youtube video
-           protocol matches     '(ytdl|https?)?'
+           protocol matches     '(ytdl|'$HTTP')?'
            file     matches     '(.*/)?[A-Za-z0-9_-]{11}'
            open     with        mpv --force-window=immediate -- ytdl://%file
 
@@ -183,14 +223,18 @@ EXAMPLES
            edit     with        $TERMCMD -e $EDITOR -- %file
 
            rules    for          web page
-           protocol matches     '(https?)?'
+           protocol matches     ${HTTP}?
            file     matches     '(www\.)?.*\.(com|net|org|us)'
            open     with        seamonkey -- %data
 
-     For each passed argument, the first paragraph sets the variables protocol
-     protocol to an URI protocol; file to the argument without the protocol;
-     extension to a file extension; and mime to the mimetype of the value of
-     file.  The variable data is set to the argument itself on each pass.
+     The static variables HTTP and are set to regular expressions to be used
+     later in the config file.
+
+     For each passed argument, the first paragraph sets the argument variables
+     protocol protocol to an URI protocol; file to the argument without the
+     protocol; extension to a file extension; and mime to the mimetype of the
+     value of file.  The argument variable data is set to the argument itself
+     on each pass.
 
      The second paragraph sets rules for opening youtube videos on mpv(1)
      using the ytdl protocol.

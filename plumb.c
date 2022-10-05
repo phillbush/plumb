@@ -73,12 +73,6 @@ usage(void)
 	exit(1);
 }
 
-static size_t
-min(size_t a, size_t b)
-{
-	return a < b ? a : b;
-}
-
 static void *
 emalloc(size_t size)
 {
@@ -86,6 +80,14 @@ emalloc(size_t size)
 
 	if ((p = malloc(size)) == NULL)
 		err(1, "malloc");
+	return p;
+}
+
+static void *
+erealloc(void *p, size_t size)
+{
+	if ((p = realloc(p, size)) == NULL)
+		err(1, "realloc");
 	return p;
 }
 
@@ -145,7 +147,7 @@ openrules(char *path)
 static int
 isnewruleset(char **toks, size_t ntoks)
 {
-	return ntoks > 2 && strcmp(toks[0], "rules") == 0 && strcmp(toks[1], "for") == 0;
+	return ntoks > 2 && strcmp(toks[1], "for") == 0;
 }
 
 static struct Stringa
@@ -239,12 +241,48 @@ isalnum_(char c)
 }
 
 static void
+insertvalue(struct FrameQueue *frames, const char *name, const char *value, size_t len)
+{
+	struct Frame *frame;
+
+	TAILQ_FOREACH(frame, frames, entries) {
+		if (strcmp(frame->name, name) == 0) {
+			free(frame->value);
+			frame->value = estrndup(value, len);
+			return;
+		}
+	}
+	frame = emalloc(sizeof(*frame));
+	*frame = (struct Frame){
+		.name = name,
+		.value = (value != NULL && len > 0) ? estrndup(value, len) : NULL,
+	};
+	TAILQ_INSERT_HEAD(frames, frame, entries);
+}
+
+static const char *
+lookupenv(struct FrameQueue *env, const char *name)
+{
+	struct Frame *frame;
+	char *val;
+
+	if (name == NULL)
+		return "";
+	TAILQ_FOREACH(frame, env, entries)
+		if (strcmp(frame->name, name) == 0)
+			return frame->value != NULL ? frame->value : "";
+	val = getenv(name);
+	return val != NULL ? val : "";
+}
+
+static void
 readrules(struct RulesetQueue *sets)
 {
 	enum {
 		QUOTE,
 		WORD,
 	} state;
+	struct FrameQueue env;
 	struct Ruleset *set;
 	struct Rule *rule;
 	FILE *fp;
@@ -252,24 +290,46 @@ readrules(struct RulesetQueue *sets)
 	size_t linesize;
 	ssize_t i, j;
 	ssize_t linelen;
-	int newset;
-	char *envval;
+	int setvar, newset;
+	const char *envval;
 	char *tokens[MAXTOKENS];
 	char *line;
 	char path[PATH_MAX];
+	char newvar[ENVVAR_MAX];
 	char envvar[ENVVAR_MAX];
 
 	fp = openrules(path);
 	lineno = 0;
 	TAILQ_INIT(sets);
+	TAILQ_INIT(&env);
 	while ((linelen = getline(&line, &linesize, fp)) != -1) {
 		lineno++;
 		ntoks = 0;
 		i = 0;
 		while (isspace((unsigned char)line[i]))
 			i++;
+		while (linelen > 0 && isspace((unsigned char)line[linelen - 1]))
+			line[--linelen] = '\0';
 		if (strchr("#\n", line[i]) != NULL)
 			continue;
+		j = i;
+		k = 0;
+		setvar = 0;
+		while (isalnum_(line[j]) && k < ENVVAR_MAX - 1)
+			newvar[k++] = line[j++];
+		if (j > i) {
+			/* check environment-like variable assignment */
+			while (isspace((unsigned char)line[j]))
+				j++;
+			if (line[j] == '=') {
+				j++;
+				while (isspace((unsigned char)line[j]))
+					j++;
+				newvar[k] = '\0';
+				setvar = 1;
+				i = j;
+			}
+		}
 		for ( ; i < linelen && line[i] != '\0'; i++) {
 			while (isspace((unsigned char)line[i]))
 				i++;
@@ -294,7 +354,7 @@ readrules(struct RulesetQueue *sets)
 						i += 2;
 						continue;
 					} else if (line[i+1] == '{') {
-						i += 3;
+						i += 2;
 						while (line[i] != '\0' && line[i] != '}' && k < ENVVAR_MAX - 1) {
 							envvar[k++] = line[i++];
 						}
@@ -310,12 +370,17 @@ readrules(struct RulesetQueue *sets)
 					envvar[k] = '\0';
 					if (k == 0)
 						continue;
-					envval = getenv(envvar);
-					if (envval == NULL)
-						continue;
-					len = min(strlen(envval), linelen - j - 1);
+					envval = lookupenv(&env, envvar);
+					len = strlen(envval);
+					if (len + linelen + 1 > linesize)
+						line = erealloc(line, len + linelen + 1);
+					memmove(line + j + len, line + i, strlen(line + i) + 1);
 					memcpy(line + j, envval, len);
 					j += len;
+					if (i - j < (ssize_t)len)
+						i = j + len;
+					linelen -= k;
+					linelen += len;
 					continue;
 				} else if (state == QUOTE && line[i] == '\'') {
 					if (isspace((unsigned char)line[i+1])) {
@@ -336,6 +401,13 @@ readrules(struct RulesetQueue *sets)
 			}
 			line[j] = '\0';
 		}
+		if (setvar) {
+			if (ntoks > 0)
+				insertvalue(&env, estrdup(newvar), tokens[0], strlen(tokens[0]));
+			else
+				insertvalue(&env, estrdup(newvar), "", 0);
+			continue;
+		}
 		if (ntoks < 3) {
 			warnx("%s:%zu: syntax error", path, lineno);
 			continue;
@@ -348,6 +420,10 @@ readrules(struct RulesetQueue *sets)
 			TAILQ_INSERT_TAIL(sets, set, entries);
 		}
 		if (newset) {
+			if (strcmp(tokens[0], "rules") != 0) {
+				warnx("%s:%zu: syntax error", path, lineno);
+				continue;
+			}
 			set->name = newcompls(tokens + 2, ntoks - 2);
 		} else {
 			if ((rule = newrule(tokens, ntoks, newset, path, lineno)) == NULL)
@@ -359,7 +435,7 @@ readrules(struct RulesetQueue *sets)
 }
 
 static const char *
-lookupvalue(struct FrameQueue *globals, struct FrameQueue *locals, const char *data, const char *name)
+lookupvar(struct FrameQueue *globals, struct FrameQueue *locals, const char *data, const char *name)
 {
 	struct Frame *frame;
 
@@ -373,27 +449,7 @@ lookupvalue(struct FrameQueue *globals, struct FrameQueue *locals, const char *d
 			return frame->value != NULL ? frame->value : "";
 	if (strcmp(name, "data") == 0)
 		return data != NULL ? data : "";
-	return NULL;
-}
-
-static void
-insertvalue(struct FrameQueue *frames, const char *name, const char *value, size_t len)
-{
-	struct Frame *frame;
-
-	TAILQ_FOREACH(frame, frames, entries) {
-		if (strcmp(frame->name, name) == 0) {
-			free(frame->value);
-			frame->value = estrndup(value, len);
-			return;
-		}
-	}
-	frame = emalloc(sizeof(*frame));
-	*frame = (struct Frame){
-		.name = name,
-		.value = (value != NULL && len > 0) ? estrndup(value, len) : NULL,
-	};
-	TAILQ_INSERT_HEAD(frames, frame, entries);
+	return "";
 }
 
 static struct Ruleset *
@@ -415,7 +471,7 @@ getruleset(struct RulesetQueue *sets, magic_t magic, struct Arg *arg)
 		TAILQ_FOREACH(rule, &set->rules, entries) {
 			switch (rule->type) {
 			case RULE_MATCHES:
-				val = lookupvalue(&arg->globals, &arg->locals, arg->data, rule->u.subj);
+				val = lookupvar(&arg->globals, &arg->locals, arg->data, rule->u.subj);
 				if (regexec(&rule->reg, val, MAXTOKENS, pmatch, 0) != 0) {
 					match = 0;
 					continue;
@@ -435,7 +491,7 @@ getruleset(struct RulesetQueue *sets, magic_t magic, struct Arg *arg)
 				}
 				break;
 			case RULE_TYPES:
-				val = lookupvalue(&arg->globals, &arg->locals, arg->data, rule->u.subj);
+				val = lookupvar(&arg->globals, &arg->locals, arg->data, rule->u.subj);
 				type = magic_file(magic, val);
 				len = (type != NULL) ? strlen(type) : 0;
 				insertvalue(frames, rule->compls.strs[0], type, len);
@@ -501,7 +557,7 @@ runargs(struct Stringa cmd, struct Arg *args, size_t nargs, int dryrun)
 	}
 	newargs.strs = ecalloc(nargs, sizeof(*newargs.strs));
 	for (i = 0; i < nargs; i++) {
-		val = lookupvalue(&args[i].globals, &args[i].locals, args[i].data, name);
+		val = lookupvar(&args[i].globals, &args[i].locals, args[i].data, name);
 		size = len + strlen(val) + 1;           /* +1 for '\0' */
 		newargs.strs[i] = emalloc(size);
 		snprintf(newargs.strs[i], size, "%.*s%s%s", (int)beg, s, val, s + end);

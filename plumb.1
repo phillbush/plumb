@@ -21,15 +21,15 @@ tries to find the best program to open them
 after matching the filenames with sets of rules in sequence.
 See the section
 .Sx "EXAMPLES"
-for examples on usage.
+for an example on usage.
 .Pp
-Each set of rule is associated with a program for a given type of action
+Each set of rule (or ruleset) is associated with a program for a given type of action
 (such as
 .Dq "open"
 or
 .Dq "edit" ) .
-The program for the chosen action associated with the first set of rules matching the arguments
-is the one chosen to be run.
+The program for the given action associated with the first ruleset
+matching the arguments is the one chosen to be run.
 .Pp
 The options are as follows:
 .Bl -tag -width Ds
@@ -53,10 +53,12 @@ reads rules from the file
 Lines with blank and lines beginning with
 .Dq "#" are ignored.
 .Pp
-Each non ignored line can be of four types, named by the second word in the line:
+Each non ignored line can be either a static variable assignment
+or can be one of the four following types,
+named after the second word in the line:
 .Bl -tag -width Ds
 .It Dq "for"
-A line beginning a rule set.
+A line beginning a ruleset.
 .It Dq "matches"
 A line describing a condition a variable has to match,
 and, optionally, setting new variables when the matching occurs.
@@ -67,6 +69,39 @@ and assigning this information to a new variable.
 A line describing the command to be open if the conditions in the same ruleset matches.
 .El
 .Pp
+There are two kinds of variables that can be assigned and used in the configuration file:
+.Bl -tag -width Ds
+.It Static variables
+Static variables are assigned with a
+.Dq "NAME=VALUE"
+line.
+Such variables are expanded into a single word
+when prefixed with a dollar sign
+.Pq "$"
+and occurring in any line after the place it was defined.
+Environment variables are of this kind, but do not need to be defined.
+See the section
+.Sx "Static variables"
+for more information on static variables.
+.It Argument variables
+Argument variables are assigned with a
+.Dq "matches"
+or a
+.Dq "types"
+line.
+Such variables can be expanded into various words
+(one for each argument passed to
+.Nm )
+when prefixed with a percent sign
+.Pq "%"
+and occurring as the last argument of a
+.Dq "with"
+line in the same ruleset it was defined.
+See the section
+.Sx "WITH-lines"
+for more information on argument variables.
+.El
+.Pp
 Each line is a sequence of words
 (which are either space-delimited words or
 strings quoted in
@@ -75,45 +110,62 @@ single-quote style).
 The first word of a line is the
 .Dq "subject" .
 The second word (which identifies the type of the line) is the
-.Dq "predicate" .
+.Dq "verb" .
 The remaining words are the arguments.
 .Pp
 The configuration is processed once for each argument.
-For each processing pass, the variable
+For each processing pass, the argument variable
 .Ic data
-is set to the argument itself.
+is set to the argument itself
+and the remaining argument variables are re-assigned.
+Static variables are assigned only once, at
+.Nm
+initialization.
+.Ss Static variables
+Lines of the form
+.Dq "NAME=VALUE"
+assign a value to a static variable.
+Static variable are recognized anywhere in the file after the place they are defined.
 .Pp
-Environment variables can occur on the configuration file outside quotations,
-and are replaced with its values.
-Environment variables are prefixed with the dollar sign
-.Dq "$" .
+Environment variables are also static variables, but they are not defined in the config file
+(they are already defined in the environment).
+.Pp
+References to static variables can occur on the configuration file outside quotations,
+and are replaced with their values.
+Such references are prefixed with the dollar sign
+.Dq "$"
+or prefixed with the dollar sign and surrounded by curly braces.
 The dollar sign can be escaped by doubling it.
-The name of the environment variable can also occur between curly braces.
 .Ss FOR-lines
 Lines whose second word is
 .Dq "for"
 must have
 .Dq "rules"
-as subject (first word in the line).
-They begin a new rule set.
-A rule set is everything between a
+as subject.
+They begin a new ruleset.
+A ruleset is everything between a
 .Dq FOR-line
 and the next one.
 .Pp
+For example, the following line begins the ruleset for handling video files:
+.Bd -literal -offset indent
+rules for video files
+.Ed
+.Pp
 The arguments of a
 .Dq FOR-line
-is the name of the rule set.
-When a rule set is matched for all the arguments,
+are the name of the ruleset.
+When a ruleset is matched for all the arguments,
 its name is printed to standard output.
 .Pp
-Conditions in a rule set are only checked within the rule set.
-Variables set in a rule set are only valid within the rule set.
+Conditions in a ruleset are only checked within the ruleset.
+Variables set in a ruleset are only valid within the ruleset.
 .Pp
 The lines before the first
 .Dq FOR-line
-make the global, unamed rule set.
-Conditions in the global rule set are ignored.
-Variables set in the global rule set are valid for the entire file.
+make the global, unamed ruleset.
+Conditions in the global ruleset are ignored.
+Variables set in the global ruleset are valid for the entire file.
 .Ss MATCHES-lines
 Lines whose second word is
 .Dq "matches"
@@ -122,7 +174,7 @@ They must also have a regular expression as first argument.
 The subject names a value that must match the regular expression.
 .Pp
 For example, the following line is a three-word condition that
-says that one of the conditions for the current rule set to be matched
+says that one of the conditions for the current ruleset to be matched
 is for the content of the variable
 .Ic mime
 to match the regular expression
@@ -132,28 +184,28 @@ mime matches 'image/(jpeg|png)'
 .Ed
 .Pp
 The regular expression is a extended POSIX regular expression
-and must match the entire value of the variable for the condition to be valid.
+and must match the entire value of the argument variable for the condition to be valid.
 .Pp
 If the rule has more than one argument, the second argument must be
 .Ic into
-and the following ones must be the name of variables to be set.
-Each variable is set to the substring matching the parenthesized subexpression
+and the following ones must be names of argument variables to be set.
+Each argument variable is set to the substring matching the parenthesized subexpression
 of the regular expression if, and only if, the full regular expression matches
 the value of the subject.
 .Pp
-For example, the following line assigns to the variable
-.Ic basename
+For example, the following line assigns to the argument variable
+.Ic base
 the
 .Xr basename 1
-of the value on the variable
+of the value on the argument variable
 .Ic data
-(supposing it contains a filename) ;
-and assigns to the variable
+(supposing it contains a filename);
+and assigns to the argument variable
 .Ic extension
 the extension of the filename.
-If either subexpression does not match, the corresponding variable is
+If either subexpression does not match, the corresponding argument variable is
 set to the empty string.
-The dummy variable name
+The dummy argument variable name
 .Ic _
 (underscore) is used for uneeded values.
 .Bd -literal -offset indent
@@ -162,15 +214,15 @@ data matches '(([^/]*/)*)([^/]*(\e.([A-Za-z0-9]+)?))' _ _ base extension
 .Ss TYPES-lines
 Lines whose second word is
 .Dq "types"
-must have the name of a variable as subject,
-and the name of another variable as single argument.
+must have the name of a argument variable as subject,
+and the name of another argument variable as single argument.
 The subject names a value for a existing file whose mimetype is assigned
-to the variable passed as argument.
+to the argument variable passed as argument.
 .Pp
 For example, the following line is a three-word assignment that says
-that the mimetype of the file named in the variable
+that the mimetype of the file named in the argument variable
 .Ic "data"
-must be assigned to the variable
+must be assigned to the argument variable
 .Ic "mime".
 .Bd -literal -offset indent
 data types mime
@@ -185,7 +237,7 @@ or
 .Ic "edit" ) .
 as subject and a command invocation as arguments.
 The arguments name a program to be run for the action named as subject
-when the rule set the line is in is valid for all the arguments passed.
+when the ruleset the line is in is valid for all the arguments passed.
 .Pp
 for example, the following line is a three-word description to open the browser
 .Xr firefox 1
@@ -215,11 +267,11 @@ for each argument.
 is invoked for
 .Pa "./index.html"
 and
-.Pa "path/to/file.html" ,
+.Pa "/path/to/file.html" ,
 then that single argument is replaced with
 .Pa "file://./index.html"
 and
-.Pa "file://path/to/file.html" ) .
+.Pa "file:///path/to/file.html" ) .
 .Bd -literal -offset indent
 open with firefox -- file://%data
 .Ed
@@ -244,15 +296,18 @@ configuration file.
 .Sh EXIT STATUS
 .Ex
 .Pp
-It is an error if no rule set matches for an argument.
+It is an error if no ruleset matches for an argument.
 .Sh EXAMPLES
 The following is the example of a simple configuration file.
 .Bd -literal -offset indent
-data     matches     '(([A-Za-z]+):(//)?)?(.*(\e.([A-Za-z0-9]+))?)' into _ protocol _ file _ extension
+HTTP      = '(https?)'
+DATAREGEX = '(([A-Za-z]+):(//)?)?(.*(\e.([A-Za-z0-9]+))?)'
+
+data     matches     $DATAREGEX into _ protocol _ file _ extension
 file     types       mime
 
 rules    for         youtube video
-protocol matches     '(ytdl|https?)?'
+protocol matches     '(ytdl|'$HTTP')?'
 file     matches     '(.*/)?[A-Za-z0-9_-]{11}'
 open     with        mpv --force-window=immediate -- ytdl://%file
 
@@ -263,12 +318,18 @@ open     with        seamonkey -- file://%file
 edit     with        $TERMCMD -e $EDITOR -- %file
 
 rules    for          web page
-protocol matches     '(https?)?'
+protocol matches     ${HTTP}?
 file     matches     '(www\e.)?.*\e.(com|net|org|us)'
 open     with        seamonkey -- %data
 .Ed
 .Pp
-For each passed argument, the first paragraph sets the variables
+The static variables
+.Ic HTTP
+and
+.IC DATAREGEX
+are set to regular expressions to be used later in the config file.
+.Pp
+For each passed argument, the first paragraph sets the argument variables
 .Ic protocol
 protocol to an URI protocol;
 .Ic file
@@ -278,7 +339,7 @@ to a file extension; and
 .Ic mime
 to the mimetype of the value of
 .Ic file .
-The variable
+The argument variable
 .Ic data
 is set to the argument itself on each pass.
 .Pp
