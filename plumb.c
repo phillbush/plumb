@@ -286,14 +286,15 @@ readrules(struct RulesetQueue *sets)
 	struct Ruleset *set;
 	struct Rule *rule;
 	FILE *fp;
-	size_t k, len, lineno, ntoks;
-	size_t linesize;
-	ssize_t i, j;
+	size_t k, len, lineno;
+	size_t linesize = 0;
+	size_t tokindices[MAXTOKENS];
+	ssize_t i, j, ntoks;
 	ssize_t linelen;
 	int setvar, newset;
 	const char *envval;
 	char *tokens[MAXTOKENS];
-	char *line;
+	char *line = NULL;
 	char path[PATH_MAX];
 	char newvar[ENVVAR_MAX];
 	char envvar[ENVVAR_MAX];
@@ -330,6 +331,7 @@ readrules(struct RulesetQueue *sets)
 				i = j;
 			}
 		}
+		state = WORD;
 		for ( ; i < linelen && line[i] != '\0'; i++) {
 			while (isspace((unsigned char)line[i]))
 				i++;
@@ -342,7 +344,7 @@ readrules(struct RulesetQueue *sets)
 				state = WORD;
 			}
 			j = i;
-			tokens[ntoks++] = &line[i];
+			tokindices[ntoks++] = i;
 			while (j < linelen && line[i] != '\0') {
 				if (state == WORD && isspace((unsigned char)line[i])) {
 					line[j] = '\0';
@@ -372,13 +374,14 @@ readrules(struct RulesetQueue *sets)
 						continue;
 					envval = lookupenv(&env, envvar);
 					len = strlen(envval);
-					if (len + linelen + 1 > linesize)
+					if (len + linelen + 1 > linesize) {
 						line = erealloc(line, len + linelen + 1);
+					}
 					memmove(line + j + len, line + i, strlen(line + i) + 1);
 					memcpy(line + j, envval, len);
 					j += len;
 					if (i - j < (ssize_t)len)
-						i = j + len;
+						i = j;
 					linelen -= k;
 					linelen += len;
 					continue;
@@ -389,6 +392,7 @@ readrules(struct RulesetQueue *sets)
 						break;
 					} else if (line[i+1] == '\'') {
 						line[j++] = '\'';
+						i++;
 					} else {
 						state = WORD;
 					}
@@ -401,6 +405,8 @@ readrules(struct RulesetQueue *sets)
 			}
 			line[j] = '\0';
 		}
+		for (i = 0; i < ntoks; i++)
+			tokens[i] = &line[tokindices[i]];
 		if (setvar) {
 			if (ntoks > 0)
 				insertvalue(&env, estrdup(newvar), tokens[0], strlen(tokens[0]));
