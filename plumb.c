@@ -379,11 +379,13 @@ readrules(struct RulesetQueue *sets)
 					}
 					memmove(line + j + len, line + i, strlen(line + i) + 1);
 					memcpy(line + j, envval, len);
+					linelen -= (i - j);
+					linelen += len;
 					j += len;
 					if (i - j < (ssize_t)len)
 						i = j;
-					linelen -= k;
-					linelen += len;
+					if (linelen > 0)
+						line[linelen-1] = '\0';
 					continue;
 				} else if (state == QUOTE && line[i] == '\'') {
 					if (isspace((unsigned char)line[i+1])) {
