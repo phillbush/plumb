@@ -5,7 +5,7 @@
 .Nm plumb
 .Nd run command on arguments matching rules
 .Sh SYNOPSIS
-.Nm prog
+.Nm
 .Op Fl eon
 .Ar arg ...
 .Sh DESCRIPTION
@@ -34,12 +34,30 @@ matching the arguments is the one chosen to be run.
 The options are as follows:
 .Bl -tag -width Ds
 .It Fl e
-The action is to 
+The action is to
 .Dq edit .
+Invoking
+.Nm
+with the basename of its
+.Ic "argv[0]"
+equal to
+.Dq "edit"
+is equivalent to invoke it with the
+.Fl e
+command-line option.
 .It Fl o
-The action is to 
+The action is to
 .Dq open .
 This is the default action.
+Invoking
+.Nm
+with the basename of its
+.Ic "argv[0]"
+equal to
+.Dq "open"
+is equivalent to invoke it with the
+.Fl o
+command-line option.
 .It Fl n
 Dry-run.
 When this option is given,

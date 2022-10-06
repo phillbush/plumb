@@ -26,7 +26,7 @@ TAILQ_HEAD(RulesetQueue, Ruleset);
 struct Frame {
 	/* singly-linked list of name-value pairs */
 	TAILQ_ENTRY(Frame) entries;
-	const char *name;
+	char *name;
 	char *value;
 };
 
@@ -254,7 +254,7 @@ insertvalue(struct FrameQueue *frames, const char *name, const char *value, size
 	}
 	frame = emalloc(sizeof(*frame));
 	*frame = (struct Frame){
-		.name = name,
+		.name = estrdup(name),
 		.value = (value != NULL && len > 0) ? estrndup(value, len) : NULL,
 	};
 	TAILQ_INSERT_HEAD(frames, frame, entries);
@@ -379,13 +379,11 @@ readrules(struct RulesetQueue *sets)
 					}
 					memmove(line + j + len, line + i, strlen(line + i) + 1);
 					memcpy(line + j, envval, len);
-					linelen -= (i - j);
+					linelen -= i - j;
 					linelen += len;
 					j += len;
-					if (i - j < (ssize_t)len)
-						i = j;
-					if (linelen > 0)
-						line[linelen-1] = '\0';
+					i = j;
+					line[linelen] = '\0';
 					continue;
 				} else if (state == QUOTE && line[i] == '\'') {
 					if (isspace((unsigned char)line[i+1])) {
@@ -460,63 +458,53 @@ lookupvar(struct FrameQueue *globals, struct FrameQueue *locals, const char *dat
 	return "";
 }
 
-static struct Ruleset *
-getruleset(struct RulesetQueue *sets, magic_t magic, struct Arg *arg)
+static int
+matchruleset(struct Ruleset *set, magic_t magic, struct Arg *arg, int local)
 {
-	struct FrameQueue *frames;
-	struct Ruleset *set;
 	struct Rule *rule;
+	struct FrameQueue *frames;
 	regmatch_t pmatch[MAXTOKENS];
 	size_t i;
 	regoff_t beg, len;
 	int match;
 	const char *val, *type;
 
-	match = 0;
-	TAILQ_FOREACH(set, sets, entries) {
-		frames = (set->name.nstrs > 0 ? &arg->locals : &arg->globals);
-		match = 1;
-		TAILQ_FOREACH(rule, &set->rules, entries) {
-			switch (rule->type) {
-			case RULE_MATCHES:
-				val = lookupvar(&arg->globals, &arg->locals, arg->data, rule->u.subj);
-				if (regexec(&rule->reg, val, MAXTOKENS, pmatch, 0) != 0) {
-					match = 0;
-					continue;
-				}
-				if (pmatch[0].rm_so != 0 || val[pmatch[0].rm_eo] != '\0') {
-					match = 0;
-					continue;
-				}
-				for (i = 0; i < rule->reg.re_nsub && i < rule->compls.nstrs; i++) {
-					beg = pmatch[i + 1].rm_so;
-					len = pmatch[i + 1].rm_eo - beg;
-					if (beg >= 0 && len >= 0) {
-						insertvalue(frames, rule->compls.strs[i], val + beg, len);
-					} else {
-						insertvalue(frames, rule->compls.strs[i], NULL, 0);
-					}
-				}
-				break;
-			case RULE_TYPES:
-				val = lookupvar(&arg->globals, &arg->locals, arg->data, rule->u.subj);
-				type = magic_file(magic, val);
-				len = (type != NULL) ? strlen(type) : 0;
-				insertvalue(frames, rule->compls.strs[0], type, len);
-				break;
-			case RULE_WITH:
-				/* we deal with this later */
-				break;
+	match = 1;
+	frames = (local ? &arg->locals : &arg->globals);
+	TAILQ_FOREACH(rule, &set->rules, entries) {
+		switch (rule->type) {
+		case RULE_MATCHES:
+			val = lookupvar(&arg->globals, &arg->locals, arg->data, rule->u.subj);
+			if (regexec(&rule->reg, val, MAXTOKENS, pmatch, 0) != 0) {
+				match = 0;
+				continue;
 			}
-		}
-		if (set == TAILQ_FIRST(sets)) {
-			match = 0;
-		}
-		if (match) {
+			if (pmatch[0].rm_so != 0 || val[pmatch[0].rm_eo] != '\0') {
+				match = 0;
+				continue;
+			}
+			for (i = 0; i < rule->reg.re_nsub && i < rule->compls.nstrs; i++) {
+				beg = pmatch[i + 1].rm_so;
+				len = pmatch[i + 1].rm_eo - beg;
+				if (beg >= 0 && len >= 0) {
+					insertvalue(frames, rule->compls.strs[i], val + beg, len);
+				} else {
+					insertvalue(frames, rule->compls.strs[i], NULL, 0);
+				}
+			}
+			break;
+		case RULE_TYPES:
+			val = lookupvar(&arg->globals, &arg->locals, arg->data, rule->u.subj);
+			type = magic_file(magic, val);
+			len = (type != NULL) ? strlen(type) : 0;
+			insertvalue(frames, rule->compls.strs[0], type, len);
+			break;
+		case RULE_WITH:
+			/* we deal with this later */
 			break;
 		}
 	}
-	return set;
+	return match;
 }
 
 static void
@@ -643,6 +631,26 @@ freerules(struct RulesetQueue *sets)
 	}
 }
 
+static void
+freeargs(struct Arg *args, int nargs)
+{
+	struct Frame *frame;
+	int i;
+
+	for (i = 0; i < nargs; i++) {
+		while ((frame = TAILQ_FIRST(&args[i].globals)) != NULL) {
+			TAILQ_REMOVE(&args[i].globals, frame, entries);
+			free(frame->name);
+			free(frame->value);
+		}
+		while ((frame = TAILQ_FIRST(&args[i].locals)) != NULL) {
+			TAILQ_REMOVE(&args[i].locals, frame, entries);
+			free(frame->name);
+			free(frame->value);
+		}
+	}
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -650,13 +658,24 @@ main(int argc, char *argv[])
 	struct Ruleset *set, *foundset;
 	struct Arg *args;
 	magic_t magic;
-	int plumb;
 	int i, c;
 	enum Mode mode;
 	int dryrun;
+	char *cmd;
 
 	mode = MODE_OPEN;
 	dryrun = 0;
+	if (argc > 0 && argv[0] != NULL) {
+		if ((cmd = strchr(argv[0], '/')) != NULL)
+			cmd++;
+		else
+			cmd = argv[0];
+		if (strcmp(cmd, "open") == 0) {
+			mode = MODE_OPEN;
+		} else if (strcmp(cmd, "edit") == 0) {
+			mode = MODE_EDIT;
+		}
+	}
 	while ((c = getopt(argc, argv, "eon")) != -1) {
 		switch (c) {
 		case 'e':
@@ -682,26 +701,38 @@ main(int argc, char *argv[])
 		errx(1, "could not get magic cookie");
 	if (magic_load(magic, NULL) == -1)
 		errx(1, "could not load magic database");
-	plumb = 0;
 	readrules(&sets);
+	if (TAILQ_EMPTY(&sets)) {
+		freerules(&sets);
+		free(args);
+		return 1;
+	}
 	foundset = NULL;
 	for (i = 0; i < argc; i++) {
 		args[i].data = argv[i];
 		TAILQ_INIT(&args[i].globals);
 		TAILQ_INIT(&args[i].locals);
-		if ((set = getruleset(&sets, magic, &args[i])) == NULL)
-			continue;
+		set = TAILQ_FIRST(&sets);
+		(void)matchruleset(set, magic, &args[i], 0);
+		for (set = TAILQ_NEXT(set, entries);
+		     i == 0 && set != NULL;
+		     set = TAILQ_NEXT(set, entries)) {
+			if (matchruleset(set, magic, &args[i], 0)) {
+				foundset = set;
+				break;
+			}
+		}
+		if (i > 0 && !matchruleset(foundset, magic, &args[i], 1)) {
+			foundset = NULL;
+		}
 		if (foundset == NULL) {
-			foundset = set;
-			plumb = 1;
-		} else if (foundset != set) {
-			plumb = 0;
 			break;
 		}
 	}
 	magic_close(magic);
-	if (plumb && foundset != NULL)
+	if (foundset != NULL)
 		openwith(foundset, args, argc, mode, dryrun);
 	freerules(&sets);
-	return !plumb;
+	freeargs(args, argc);
+	return (foundset == NULL);
 }

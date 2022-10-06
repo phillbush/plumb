@@ -4,7 +4,7 @@ NAME
      plumb – run command on arguments matching rules
 
 SYNOPSIS
-     prog [-eon] arg ...
+     plumb [-eon] arg ...
 
 DESCRIPTION
      plumb pass the given arguments, as is or modified, to the best program
@@ -22,9 +22,13 @@ DESCRIPTION
 
      The options are as follows:
 
-     -e      The action is to “edit”.
+     -e      The action is to “edit”.  Invoking plumb with the basename of its
+             argv[0] equal to “edit” is equivalent to invoke it with the -e
+             command-line option.
 
-     -o      The action is to “open”.  This is the default action.
+     -o      The action is to “open”.  This is the default action.  Invoking
+             plumb with the basename of its argv[0] equal to “open” is
+             equivalent to invoke it with the -o command-line option.
 
      -n      Dry-run.  When this option is given, plumb does not executes the
              matched program, but prints what would be executed to standard
