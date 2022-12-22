@@ -170,10 +170,14 @@ newrule(char **toks, size_t ntoks, int isnew, const char *config, size_t lineno)
 {
 	struct Rule *rule;
 	regex_t reg;
-	int res, type, n;
+	int flags, res, type, n;
 	char errbuf[BUFSIZE];
 
+	flags = REG_EXTENDED;
 	if (strcmp(toks[1], "matches") == 0) {
+		type = RULE_MATCHES;
+	} else if (strcmp(toks[1], "imatches") == 0) {
+		flags |= REG_ICASE;
 		type = RULE_MATCHES;
 	} else if (strcmp(toks[1], "types") == 0) {
 		type = RULE_TYPES;
@@ -195,7 +199,7 @@ newrule(char **toks, size_t ntoks, int isnew, const char *config, size_t lineno)
 		} else {
 			n = 3;
 		}
-		if ((res = regcomp(&reg, toks[2], REG_EXTENDED)) != 0) {
+		if ((res = regcomp(&reg, toks[2], flags)) != 0) {
 			if (regerror(res, &reg, errbuf, sizeof(errbuf)) > 0)
 				warnx("%s:%zu: %s", config, lineno, errbuf);
 			else

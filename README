@@ -16,7 +16,7 @@ DESCRIPTION
      section EXAMPLES for an example on usage.
 
      Each set of rule (or ruleset) is associated with a program for a given
-     type of action (such as “open” or “edit”).  The program for the given
+     type of action (such as "open" or "edit").  The program for the given
      action associated with the first ruleset matching the arguments is the
      one chosen to be run.
 
@@ -48,30 +48,36 @@ DESCRIPTION
 USAGE
      plumb reads rules from the file $HOME/lib/plumb or from the file
      specified by the -c command-line option.  Lines with blank and lines
-     beginning with “# are ignored.”
+     beginning with "# are ignored."
 
      Each non ignored line can be either a static variable assignment or can
      be one of the four following types, named after the second word in the
      line:
 
-     “for”   A line beginning a ruleset.
+     "for"   A line beginning a ruleset.
 
-     “matches”
-             A line describing a condition a variable has to match, and,
-             optionally, setting new variables when the matching occurs.
+     "matches"
+             A line describing a condition a variable has to match case-
+             sensitively, and, optionally, setting new variables when the
+             matching occurs.
 
-     “types”
+     "imatches"
+             A line describing a condition a variable has to match case-
+             insensitively, and, optionally, setting new variables when the
+             matching occurs.
+
+     "types"
              A line testing the existence and type of a file, and assigning
              this information to a new variable.
 
-     “with”  A line describing the command to be open if the conditions in the
+     "with"  A line describing the command to be open if the conditions in the
              same ruleset matches.
 
      There are two kinds of variables that can be assigned and used in the
      configuration file:
 
      Static variables
-             Static variables are assigned with a “NAME=VALUE” line.  Such
+             Static variables are assigned with a "NAME=VALUE" line.  Such
              variables are expanded into a single word when prefixed with a
              dollar sign ($) and occurring in any line after the place it was
              defined.  Environment variables are of this kind, but do not need
@@ -79,17 +85,17 @@ USAGE
              information on static variables.
 
      Argument variables
-             Argument variables are assigned with a “matches” or a “types”
-             line.  Such variables can be expanded into various words (one for
-             each argument passed to plumb) when prefixed with a percent sign
-             (%) and occurring as the last argument of a “with” line in the
-             same ruleset it was defined.  See the section WITH-lines for more
-             information on argument variables.
+             Argument variables are assigned with a "matches", "imatches", or
+             a "types" line.  Such variables can be expanded into various
+             words (one for each argument passed to plumb) when prefixed with
+             a percent sign (%) and occurring as the last argument of a "with"
+             line in the same ruleset it was defined.  See the section WITH-
+             lines for more information on argument variables.
 
      Each line is a sequence of words (which are either space-delimited words
      or strings quoted in rc(1) single-quote style).  The first word of a line
-     is the “subject”.  The second word (which identifies the type of the
-     line) is the “verb”.  The remaining words are the arguments.
+     is the "subject".  The second word (which identifies the type of the
+     line) is the "verb".  The remaining words are the arguments.
 
      The configuration is processed once for each argument.  For each
      processing pass, the argument variable data is set to the argument itself
@@ -97,7 +103,7 @@ USAGE
      are assigned only once, at plumb initialization.
 
    Static variables
-     Lines of the form “NAME=VALUE” assign a value to a static variable.
+     Lines of the form "NAME=VALUE" assign a value to a static variable.
      Static variable are recognized anywhere in the file after the place they
      are defined.
 
@@ -106,13 +112,13 @@ USAGE
 
      References to static variables can occur on the configuration file
      outside quotations, and are replaced with their values.  Such references
-     are prefixed with the dollar sign “$” or prefixed with the dollar sign
+     are prefixed with the dollar sign "$" or prefixed with the dollar sign
      and surrounded by curly braces.  The dollar sign can be escaped by
      doubling it.
 
    FOR-lines
-     Lines whose second word is “for” must have “rules” as subject.  They
-     begin a new ruleset.  A ruleset is everything between a “FOR-line” and
+     Lines whose second word is "for" must have "rules" as subject.  They
+     begin a new ruleset.  A ruleset is everything between a "FOR-line" and
      the next one.
 
      For example, the following line begins the ruleset for handling video
@@ -120,22 +126,26 @@ USAGE
 
            rules for video files
 
-     The arguments of a “FOR-line” are the name of the ruleset.  When a
+     The arguments of a "FOR-line" are the name of the ruleset.  When a
      ruleset is matched for all the arguments, its name is printed to standard
      output.
 
      Conditions in a ruleset are only checked within the ruleset.  Variables
      set in a ruleset are only valid within the ruleset.
 
-     The lines before the first “FOR-line” make the global, unamed ruleset.
+     The lines before the first "FOR-line" make the global, unamed ruleset.
      Conditions in the global ruleset are ignored.  Variables set in the
      global ruleset are valid for the entire file.
 
    MATCHES-lines
-     Lines whose second word is “matches” must have the name of a variable as
-     subject (first word in the line).  They must also have a regular
-     expression as first argument.  The subject names a value that must match
-     the regular expression.
+     Lines whose second word is "matches" or "imatches" must have the name of
+     a variable as subject (first word in the line).  They must also have a
+     regular expression as first argument.  The subject names a value that
+     must match the regular expression.
+
+     If the second word is "matches", the regular expression matching is case-
+     sensitive.  If the second word is "imatches", the regular expression
+     matching is case-insensitive.
 
      For example, the following line is a three-word condition that says that
      one of the conditions for the current ruleset to be matched is for the
@@ -164,7 +174,7 @@ USAGE
            data matches '(([^/]*/)*)([^/]*(\.([A-Za-z0-9]+)?))' _ _ base extension
 
    TYPES-lines
-     Lines whose second word is “types” must have the name of a argument
+     Lines whose second word is "types" must have the name of a argument
      variable as subject, and the name of another argument variable as single
      argument.  The subject names a value for a existing file whose mimetype
      is assigned to the argument variable passed as argument.
@@ -176,7 +186,7 @@ USAGE
            data types mime
 
    WITH-lines
-     Lines whose second word is “with” must have the name of an action type
+     Lines whose second word is "with" must have the name of an action type
      (like open or edit) as subject and a command invocation as arguments.
      The arguments name a program to be run for the action named as subject
      when the ruleset the line is in is valid for all the arguments passed.
@@ -186,7 +196,7 @@ USAGE
 
            open with firefox
 
-     If the last argument has a percent symbol (“%”) before a name, then this
+     If the last argument has a percent symbol ("%") before a name, then this
      name is considered as a variable name.  This argument is replaced by one
      argument for each argument passed and the variable name with the percent
      sign is replaced with the value of the variable.

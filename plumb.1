@@ -27,9 +27,9 @@ for an example on usage.
 .Pp
 Each set of rule (or ruleset) is associated with a program for a given type of action
 (such as
-.Dq "open"
+.Qq "open"
 or
-.Dq "edit" ) .
+.Qq "edit" ) .
 The program for the given action associated with the first ruleset
 matching the arguments is the one chosen to be run.
 .Pp
@@ -92,21 +92,24 @@ or from the file specified by the
 .Fl c
 command-line option.
 Lines with blank and lines beginning with
-.Dq "#" are ignored.
+.Qq "#" are ignored.
 .Pp
 Each non ignored line can be either a static variable assignment
 or can be one of the four following types,
 named after the second word in the line:
 .Bl -tag -width Ds
-.It Dq "for"
+.It Qq "for"
 A line beginning a ruleset.
-.It Dq "matches"
-A line describing a condition a variable has to match,
+.It Qq "matches"
+A line describing a condition a variable has to match case-sensitively,
 and, optionally, setting new variables when the matching occurs.
-.It Dq "types"
+.It Qq "imatches"
+A line describing a condition a variable has to match case-insensitively,
+and, optionally, setting new variables when the matching occurs.
+.It Qq "types"
 A line testing the existence and type of a file,
 and assigning this information to a new variable.
-.It Dq "with"
+.It Qq "with"
 A line describing the command to be open if the conditions in the same ruleset matches.
 .El
 .Pp
@@ -114,7 +117,7 @@ There are two kinds of variables that can be assigned and used in the configurat
 .Bl -tag -width Ds
 .It Static variables
 Static variables are assigned with a
-.Dq "NAME=VALUE"
+.Qq "NAME=VALUE"
 line.
 Such variables are expanded into a single word
 when prefixed with a dollar sign
@@ -126,9 +129,10 @@ See the section
 for more information on static variables.
 .It Argument variables
 Argument variables are assigned with a
-.Dq "matches"
+.Qq "matches" ,
+.Qq "imatches" ,
 or a
-.Dq "types"
+.Qq "types"
 line.
 Such variables can be expanded into various words
 (one for each argument passed to
@@ -136,7 +140,7 @@ Such variables can be expanded into various words
 when prefixed with a percent sign
 .Pq "%"
 and occurring as the last argument of a
-.Dq "with"
+.Qq "with"
 line in the same ruleset it was defined.
 See the section
 .Sx "WITH-lines"
@@ -149,9 +153,9 @@ strings quoted in
 .Xr rc 1
 single-quote style).
 The first word of a line is the
-.Dq "subject" .
+.Qq "subject" .
 The second word (which identifies the type of the line) is the
-.Dq "verb" .
+.Qq "verb" .
 The remaining words are the arguments.
 .Pp
 The configuration is processed once for each argument.
@@ -164,7 +168,7 @@ Static variables are assigned only once, at
 initialization.
 .Ss Static variables
 Lines of the form
-.Dq "NAME=VALUE"
+.Qq "NAME=VALUE"
 assign a value to a static variable.
 Static variable are recognized anywhere in the file after the place they are defined.
 .Pp
@@ -174,18 +178,18 @@ Environment variables are also static variables, but they are not defined in the
 References to static variables can occur on the configuration file outside quotations,
 and are replaced with their values.
 Such references are prefixed with the dollar sign
-.Dq "$"
+.Qq "$"
 or prefixed with the dollar sign and surrounded by curly braces.
 The dollar sign can be escaped by doubling it.
 .Ss FOR-lines
 Lines whose second word is
-.Dq "for"
+.Qq "for"
 must have
-.Dq "rules"
+.Qq "rules"
 as subject.
 They begin a new ruleset.
 A ruleset is everything between a
-.Dq FOR-line
+.Qq FOR-line
 and the next one.
 .Pp
 For example, the following line begins the ruleset for handling video files:
@@ -194,7 +198,7 @@ rules for video files
 .Ed
 .Pp
 The arguments of a
-.Dq FOR-line
+.Qq FOR-line
 are the name of the ruleset.
 When a ruleset is matched for all the arguments,
 its name is printed to standard output.
@@ -203,16 +207,25 @@ Conditions in a ruleset are only checked within the ruleset.
 Variables set in a ruleset are only valid within the ruleset.
 .Pp
 The lines before the first
-.Dq FOR-line
+.Qq FOR-line
 make the global, unamed ruleset.
 Conditions in the global ruleset are ignored.
 Variables set in the global ruleset are valid for the entire file.
 .Ss MATCHES-lines
 Lines whose second word is
-.Dq "matches"
+.Qq "matches"
+or
+.Qq "imatches"
 must have the name of a variable as subject (first word in the line).
 They must also have a regular expression as first argument.
 The subject names a value that must match the regular expression.
+.Pp
+If the second word is
+.Qq "matches" ,
+the regular expression matching is case-sensitive.
+If the second word is
+.Qq "imatches" ,
+the regular expression matching is case-insensitive.
 .Pp
 For example, the following line is a three-word condition that
 says that one of the conditions for the current ruleset to be matched
@@ -254,7 +267,7 @@ data matches '(([^/]*/)*)([^/]*(\e.([A-Za-z0-9]+)?))' _ _ base extension
 .Ed
 .Ss TYPES-lines
 Lines whose second word is
-.Dq "types"
+.Qq "types"
 must have the name of a argument variable as subject,
 and the name of another argument variable as single argument.
 The subject names a value for a existing file whose mimetype is assigned
@@ -270,7 +283,7 @@ data types mime
 .Ed
 .Ss WITH-lines
 Lines whose second word is
-.Dq "with"
+.Qq "with"
 must have the name of an action type
 (like
 .Ic "open"
@@ -290,7 +303,7 @@ open with firefox
 .Ed
 .Pp
 If the last argument has a percent symbol
-.Pq Dq "%"
+.Pq Qq "%"
 before a name,
 then this name is considered as a variable name.
 This argument is replaced by one argument for each argument passed
