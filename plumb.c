@@ -452,7 +452,7 @@ lookupvar(struct FrameQueue *globals, struct FrameQueue *locals, const char *dat
 }
 
 static int
-matchruleset(struct Ruleset *set, magic_t magic, struct Arg *arg, int local)
+matchruleset(struct Ruleset *set, magic_t magic, struct Arg *arg, char *action, int local)
 {
 	struct Rule *rule;
 	struct FrameQueue *frames;
@@ -497,7 +497,19 @@ matchruleset(struct Ruleset *set, magic_t magic, struct Arg *arg, int local)
 			break;
 		}
 	}
-	return match;
+	if (!match)
+		return 0;
+	TAILQ_FOREACH(rule, &set->rules, entries) {
+		switch (rule->type) {
+		case RULE_WITH:
+			if (strcmp(action, rule->subj) == 0)
+				return 1;
+			break;
+		default:
+			break;
+		}
+	}
+	return 0;
 }
 
 static void
@@ -672,6 +684,7 @@ main(int argc, char *argv[])
 		switch (c) {
 		case 'a':
 			action = optarg;
+			break;
 		case 'c':
 			config = optarg;
 			break;
@@ -710,16 +723,16 @@ main(int argc, char *argv[])
 		TAILQ_INIT(&args[i].globals);
 		TAILQ_INIT(&args[i].locals);
 		set = TAILQ_FIRST(&sets);
-		(void)matchruleset(set, magic, &args[i], 0);
+		(void)matchruleset(set, magic, &args[i], action, 0);
 		for (set = TAILQ_NEXT(set, entries);
 		     i == 0 && set != NULL;
 		     set = TAILQ_NEXT(set, entries)) {
-			if (matchruleset(set, magic, &args[i], 0)) {
+			if (matchruleset(set, magic, &args[i], action, 0)) {
 				foundset = set;
 				break;
 			}
 		}
-		if (i > 0 && !matchruleset(foundset, magic, &args[i], 1)) {
+		if (i > 0 && !matchruleset(foundset, magic, &args[i], action, 1)) {
 			foundset = NULL;
 		}
 		if (foundset == NULL) {
