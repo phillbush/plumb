@@ -4,7 +4,7 @@ NAME
      plumb – run command on arguments matching rules
 
 SYNOPSIS
-     plumb [-eon] [-a action] [-c config] arg ...
+     plumb [-eon] [-a actions] [-c config] arg ...
 
 DESCRIPTION
      plumb pass the given arguments, as is or modified, to the best program
@@ -22,8 +22,11 @@ DESCRIPTION
 
      The options are as follows:
 
-     -a action
-             Specify the action to be performed.
+     -a actions
+             Comma-delimited list of actions to be try.  If the matching rule
+             contains one of those actions, the first action in the matching
+             rule is performed.  For example, -a edit,open will try to perform
+             either the edit or the open action on the given arguments.
 
      -c config
              Use the file config rather than ~/lib/plumb as the file
@@ -174,7 +177,7 @@ USAGE
 
    WITH-lines
      Lines whose second word is “with” must have the name of an action type
-     (either open or edit).  as subject and a command invocation as arguments.
+     (like open or edit) as subject and a command invocation as arguments.
      The arguments name a program to be run for the action named as subject
      when the ruleset the line is in is valid for all the arguments passed.
 

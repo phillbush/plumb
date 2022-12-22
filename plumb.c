@@ -65,7 +65,7 @@ struct Ruleset {
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: plumb [-eon] [-a action] [-c config] arg...\n");
+	(void)fprintf(stderr, "usage: plumb [-eon] [-a actions] [-c config] arg...\n");
 	exit(1);
 }
 
@@ -452,7 +452,7 @@ lookupvar(struct FrameQueue *globals, struct FrameQueue *locals, const char *dat
 }
 
 static int
-matchruleset(struct Ruleset *set, magic_t magic, struct Arg *arg, char *action, int local)
+matchruleset(struct Ruleset *set, magic_t magic, struct Arg *arg, char *actions, int local)
 {
 	struct Rule *rule;
 	struct FrameQueue *frames;
@@ -502,7 +502,7 @@ matchruleset(struct Ruleset *set, magic_t magic, struct Arg *arg, char *action, 
 	TAILQ_FOREACH(rule, &set->rules, entries) {
 		switch (rule->type) {
 		case RULE_WITH:
-			if (strcmp(action, rule->subj) == 0)
+			if (strstr(actions, rule->subj) != NULL)
 				return 1;
 			break;
 		default:
@@ -591,7 +591,7 @@ runargs(struct Stringa cmd, struct Arg *args, size_t nargs, int dryrun)
 }
 
 static void
-openwith(struct Ruleset *set, struct Arg *args, int nargs, const char *action, int dryrun)
+openwith(struct Ruleset *set, struct Arg *args, int nargs, const char *actions, int dryrun)
 {
 	struct Rule *rule;
 	size_t i;
@@ -603,7 +603,7 @@ openwith(struct Ruleset *set, struct Arg *args, int nargs, const char *action, i
 		printf("%s%s", (i == 0 ? "" : " "), set->name.strs[i]);
 	printf("\n");
 	TAILQ_FOREACH(rule, &set->rules, entries) {
-		if (rule->type == RULE_WITH && strcmp(rule->subj, action) == 0) {
+		if (rule->type == RULE_WITH && strstr(actions, rule->subj) != NULL) {
 			runargs(rule->compls, args, nargs, dryrun);
 			return;
 		}
@@ -664,9 +664,9 @@ main(int argc, char *argv[])
 	magic_t magic;
 	int i, c;
 	int dryrun;
-	char *cmd, *config, *action;
+	char *cmd, *config, *actions;
 
-	action = ACTION_OPEN;
+	actions = ACTION_OPEN;
 	dryrun = 0;
 	config = NULL;
 	if (argc > 0 && argv[0] != NULL) {
@@ -675,27 +675,27 @@ main(int argc, char *argv[])
 		else
 			cmd = argv[0];
 		if (strcmp(cmd, "open") == 0) {
-			action = ACTION_OPEN;
+			actions = ACTION_OPEN;
 		} else if (strcmp(cmd, "edit") == 0) {
-			action = ACTION_EDIT;
+			actions = ACTION_EDIT;
 		}
 	}
 	while ((c = getopt(argc, argv, "a:c:eon")) != -1) {
 		switch (c) {
 		case 'a':
-			action = optarg;
+			actions = optarg;
 			break;
 		case 'c':
 			config = optarg;
 			break;
 		case 'e':
-			action = ACTION_EDIT;
+			actions = ACTION_EDIT;
 			break;
 		case 'n':
 			dryrun = 1;
 			break;
 		case 'o':
-			action = ACTION_OPEN;
+			actions = ACTION_OPEN;
 			break;
 		default:
 			usage();
@@ -723,16 +723,16 @@ main(int argc, char *argv[])
 		TAILQ_INIT(&args[i].globals);
 		TAILQ_INIT(&args[i].locals);
 		set = TAILQ_FIRST(&sets);
-		(void)matchruleset(set, magic, &args[i], action, 0);
+		(void)matchruleset(set, magic, &args[i], actions, 0);
 		for (set = TAILQ_NEXT(set, entries);
 		     i == 0 && set != NULL;
 		     set = TAILQ_NEXT(set, entries)) {
-			if (matchruleset(set, magic, &args[i], action, 0)) {
+			if (matchruleset(set, magic, &args[i], actions, 0)) {
 				foundset = set;
 				break;
 			}
 		}
-		if (i > 0 && !matchruleset(foundset, magic, &args[i], action, 1)) {
+		if (i > 0 && !matchruleset(foundset, magic, &args[i], actions, 1)) {
 			foundset = NULL;
 		}
 		if (foundset == NULL) {
@@ -741,7 +741,7 @@ main(int argc, char *argv[])
 	}
 	magic_close(magic);
 	if (foundset != NULL)
-		openwith(foundset, args, argc, action, dryrun);
+		openwith(foundset, args, argc, actions, dryrun);
 	freerules(&sets);
 	freeargs(args, argc);
 	return (foundset == NULL);

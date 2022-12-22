@@ -7,7 +7,7 @@
 .Sh SYNOPSIS
 .Nm
 .Op Fl eon
-.Op Fl a Ar action
+.Op Fl a Ar actions
 .Op Fl c Ar config
 .Ar arg ...
 .Sh DESCRIPTION
@@ -35,8 +35,13 @@ matching the arguments is the one chosen to be run.
 .Pp
 The options are as follows:
 .Bl -tag -width Ds
-.It Fl a Ar action
-Specify the action to be performed.
+.It Fl a Ar actions
+Comma-delimited list of actions to be try.
+If the matching rule contains one of those actions,
+the first action in the matching rule is performed.
+For example,
+.Fl a Cm edit,open
+will try to perform either the edit or the open action on the given arguments.
 .It Fl c Ar config
 Use the file
 .Ar config
@@ -270,7 +275,7 @@ must have the name of an action type
 (like
 .Ic "open"
 or
-.Ic "edit" ) .
+.Ic "edit" )
 as subject and a command invocation as arguments.
 The arguments name a program to be run for the action named as subject
 when the ruleset the line is in is valid for all the arguments passed.
