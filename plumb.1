@@ -7,6 +7,7 @@
 .Sh SYNOPSIS
 .Nm
 .Op Fl eon
+.Op Fl c Ar config
 .Ar arg ...
 .Sh DESCRIPTION
 .Nm
@@ -33,6 +34,12 @@ matching the arguments is the one chosen to be run.
 .Pp
 The options are as follows:
 .Bl -tag -width Ds
+.It Fl c Ar config
+Use the file
+.Ar config
+rather than
+.Pa ~/lib/plumb
+as the file containing plumbing rules.
 .It Fl e
 The action is to
 .Dq edit .
@@ -67,7 +74,10 @@ does not executes the matched program, but prints what would be executed to stan
 .Sh USAGE
 .Nm
 reads rules from the file
-.Pa "$HOME/lib/plumb".
+.Pa "$HOME/lib/plumb"
+or from the file specified by the
+.Fl c
+command-line option.
 Lines with blank and lines beginning with
 .Dq "#" are ignored.
 .Pp
@@ -303,13 +313,16 @@ The following environment variables affect the execution of
 .It Ev HOME
 Path to the directory to search for the file
 .Pa "lib/plumb" .
-It is an error for this variable to not be set.
+Unless the
+.Fl c
+command-line option is used,
+it is an error for this variable to not be set.
 .El
 .Sh FILES
 .Bl -tag -width Ds
 .It Pa "$HOME/lib/plumb"
 .Nm Ns 's
-configuration file.
+default configuration file.
 .El
 .Sh EXIT STATUS
 .Ex
@@ -344,32 +357,32 @@ open     with        seamonkey -- %data
 The static variables
 .Ic HTTP
 and
-.IC DATAREGEX
+.Ic DATAREGEX
 are set to regular expressions to be used later in the config file.
 .Pp
-For each passed argument, the first paragraph sets the argument variables
-.Ic protocol
-protocol to an URI protocol;
-.Ic file
+For each passed argument, the second paragraph sets the argument variables
+.Qq Ic protocol
+to an URI protocol;
+.Qq Ic file
 to the argument without the protocol;
-.Ic extension
+.Qq Ic extension
 to a file extension; and
-.Ic mime
+.Qq Ic mime
 to the mimetype of the value of
-.Ic file .
+.Qq Ic file .
 The argument variable
-.Ic data
-is set to the argument itself on each pass.
+.Qq Ic data
+is automatically set to the argument itself on each pass.
 .Pp
-The second paragraph sets rules for opening youtube videos on
+The third paragraph sets rules for opening youtube videos on
 .Xr mpv 1
 using the
 .Ic ytdl
 protocol.
 .Pp
-The third paragraph sets rules for opening and editing html files.
+The fourth paragraph sets rules for opening and editing html files.
 .Pp
-The fourth paragraph sets rules for opening web pages.
+The fifth paragraph sets rules for opening web pages.
 .Sh SEE ALSO
 .Rs
 .%A "Rob Pike"

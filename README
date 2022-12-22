@@ -4,7 +4,7 @@ NAME
      plumb – run command on arguments matching rules
 
 SYNOPSIS
-     plumb [-eon] arg ...
+     plumb [-eon] [-c config] arg ...
 
 DESCRIPTION
      plumb pass the given arguments, as is or modified, to the best program
@@ -22,6 +22,10 @@ DESCRIPTION
 
      The options are as follows:
 
+     -c config
+             Use the file config rather than ~/lib/plumb as the file
+             containing plumbing rules.
+
      -e      The action is to “edit”.  Invoking plumb with the basename of its
              argv[0] equal to “edit” is equivalent to invoke it with the -e
              command-line option.
@@ -35,8 +39,9 @@ DESCRIPTION
              output.
 
 USAGE
-     plumb reads rules from the file $HOME/lib/plumb.  Lines with blank and
-     lines beginning with “# are ignored.”
+     plumb reads rules from the file $HOME/lib/plumb or from the file
+     specified by the -c command-line option.  Lines with blank and lines
+     beginning with “# are ignored.”
 
      Each non ignored line can be either a static variable assignment or can
      be one of the four following types, named after the second word in the
@@ -194,12 +199,13 @@ USAGE
 ENVIRONMENT
      The following environment variables affect the execution of plumb.
 
-     HOME    Path to the directory to search for the file lib/plumb.  It is an
-             error for this variable to not be set.
+     HOME    Path to the directory to search for the file lib/plumb.  Unless
+             the -c command-line option is used, it is an error for this
+             variable to not be set.
 
 FILES
      $HOME/lib/plumb
-             plumb's configuration file.
+             plumb's default configuration file.
 
 EXIT STATUS
      The plumb utility exits 0 on success, and >0 if an error occurs.
@@ -231,21 +237,21 @@ EXAMPLES
            file     matches     '(www\.)?.*\.(com|net|org|us)'
            open     with        seamonkey -- %data
 
-     The static variables HTTP and are set to regular expressions to be used
-     later in the config file.
+     The static variables HTTP and DATAREGEX are set to regular expressions to
+     be used later in the config file.
 
-     For each passed argument, the first paragraph sets the argument variables
-     protocol protocol to an URI protocol; file to the argument without the
-     protocol; extension to a file extension; and mime to the mimetype of the
-     value of file.  The argument variable data is set to the argument itself
-     on each pass.
+     For each passed argument, the second paragraph sets the argument
+     variables "protocol" to an URI protocol; "file" to the argument without
+     the protocol; "extension" to a file extension; and "mime" to the mimetype
+     of the value of "file".  The argument variable "data" is automatically
+     set to the argument itself on each pass.
 
-     The second paragraph sets rules for opening youtube videos on mpv(1)
-     using the ytdl protocol.
+     The third paragraph sets rules for opening youtube videos on mpv(1) using
+     the ytdl protocol.
 
-     The third paragraph sets rules for opening and editing html files.
+     The fourth paragraph sets rules for opening and editing html files.
 
-     The fourth paragraph sets rules for opening web pages.
+     The fifth paragraph sets rules for opening web pages.
 
 SEE ALSO
      Rob Pike, Plumbing and Other Utilities, Bell Laboratories.

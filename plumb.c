@@ -130,15 +130,22 @@ efork(void)
 	return pid;
 }
 
-static FILE *
-openrules(char *path)
+static const char *
+getconfig(char *path, size_t size)
 {
 	char *home;
-	FILE *fp;
 
 	if ((home = getenv(HOME)) == NULL)
 		errx(1, "could not find $HOME");
-	snprintf(path, PATH_MAX, "%s/%s", home, RULESPATH);
+	snprintf(path, size, "%s/%s", home, RULESPATH);
+	return path;
+}
+
+static FILE *
+openrules(const char *path)
+{
+	FILE *fp;
+
 	if ((fp = fopen(path, "r")) == NULL)
 		err(1, "%s", path);
 	return fp;
@@ -163,7 +170,7 @@ newcompls(char **toks, size_t ntoks)
 }
 
 static struct Rule *
-newrule(char **toks, size_t ntoks, int isnew, char *path, size_t lineno)
+newrule(char **toks, size_t ntoks, int isnew, const char *config, size_t lineno)
 {
 	struct Rule *rule;
 	regex_t reg;
@@ -177,7 +184,7 @@ newrule(char **toks, size_t ntoks, int isnew, char *path, size_t lineno)
 	} else if (strcmp(toks[1], "with") == 0) {
 		type = RULE_WITH;
 	} else {
-		warnx("%s:%zu: unknown predicate \"%s\"", path, lineno, toks[1]);
+		warnx("%s:%zu: unknown predicate \"%s\"", config, lineno, toks[1]);
 		return NULL;
 	}
 	memset(&reg, 0, sizeof(reg));
@@ -186,7 +193,7 @@ newrule(char **toks, size_t ntoks, int isnew, char *path, size_t lineno)
 	if (type == RULE_MATCHES) {
 		if (ntoks > 3) {
 			if (strcmp(toks[3], "into") != 0) {
-				warnx("%s:%zu: unknown argument \"%s\"", path, lineno, toks[3]);
+				warnx("%s:%zu: unknown argument \"%s\"", config, lineno, toks[3]);
 				return NULL;
 			}
 			n = 4;
@@ -195,18 +202,18 @@ newrule(char **toks, size_t ntoks, int isnew, char *path, size_t lineno)
 		}
 		if ((res = regcomp(&reg, toks[2], REG_EXTENDED)) != 0) {
 			if (regerror(res, &reg, errbuf, sizeof(errbuf)) > 0)
-				warnx("%s:%zu: %s", path, lineno, errbuf);
+				warnx("%s:%zu: %s", config, lineno, errbuf);
 			else
-				warnx("%s:%zu: wrong regex \"%s\"", path, lineno, toks[2]);
+				warnx("%s:%zu: wrong regex \"%s\"", config, lineno, toks[2]);
 			regfree(&reg);
 			return NULL;
 		}
 	} else if (type == RULE_TYPES && ntoks != 3) {
-		warnx("%s:%zu: syntax error", path, lineno);
+		warnx("%s:%zu: syntax error", config, lineno);
 		return NULL;
 	} else if (type == RULE_WITH) {
 		if (isnew) {
-			warnx("%s:%zu: \"with\" predicates on global ruleset has no effect", path, lineno);
+			warnx("%s:%zu: \"with\" predicates on global ruleset has no effect", config, lineno);
 			return NULL;
 		}
 		if (strcmp(toks[0], "open") == 0) {
@@ -214,7 +221,7 @@ newrule(char **toks, size_t ntoks, int isnew, char *path, size_t lineno)
 		} else if (strcmp(toks[0], "edit") == 0) {
 			mode = MODE_EDIT;
 		} else {
-			warnx("%s:%zu: unknown open mode \"%s\"", path, lineno, toks[0]);
+			warnx("%s:%zu: unknown open mode \"%s\"", config, lineno, toks[0]);
 			return NULL;
 		}
 	}
@@ -276,7 +283,7 @@ lookupenv(struct FrameQueue *env, const char *name)
 }
 
 static void
-readrules(struct RulesetQueue *sets)
+readrules(struct RulesetQueue *sets, const char *config)
 {
 	enum {
 		QUOTE,
@@ -295,11 +302,13 @@ readrules(struct RulesetQueue *sets)
 	const char *envval;
 	char *tokens[MAXTOKENS];
 	char *line = NULL;
-	char path[PATH_MAX];
+	char defconfig[PATH_MAX];
 	char newvar[ENVVAR_MAX];
 	char envvar[ENVVAR_MAX];
 
-	fp = openrules(path);
+	if (config == NULL)
+		config = getconfig(defconfig, sizeof(defconfig));
+	fp = openrules(config);
 	lineno = 0;
 	TAILQ_INIT(sets);
 	TAILQ_INIT(&env);
@@ -415,7 +424,7 @@ readrules(struct RulesetQueue *sets)
 			continue;
 		}
 		if (ntoks < 3) {
-			warnx("%s:%zu: syntax error", path, lineno);
+			warnx("%s:%zu: syntax error", config, lineno);
 			continue;
 		}
 		newset = isnewruleset(tokens, ntoks);
@@ -427,12 +436,12 @@ readrules(struct RulesetQueue *sets)
 		}
 		if (newset) {
 			if (strcmp(tokens[0], "rules") != 0) {
-				warnx("%s:%zu: syntax error", path, lineno);
+				warnx("%s:%zu: syntax error", config, lineno);
 				continue;
 			}
 			set->name = newcompls(tokens + 2, ntoks - 2);
 		} else {
-			if ((rule = newrule(tokens, ntoks, newset, path, lineno)) == NULL)
+			if ((rule = newrule(tokens, ntoks, newset, config, lineno)) == NULL)
 				continue;
 			TAILQ_INSERT_TAIL(&set->rules, rule, entries);
 		}
@@ -661,10 +670,11 @@ main(int argc, char *argv[])
 	int i, c;
 	enum Mode mode;
 	int dryrun;
-	char *cmd;
+	char *cmd, *config;
 
 	mode = MODE_OPEN;
 	dryrun = 0;
+	config = NULL;
 	if (argc > 0 && argv[0] != NULL) {
 		if ((cmd = strchr(argv[0], '/')) != NULL)
 			cmd++;
@@ -676,8 +686,11 @@ main(int argc, char *argv[])
 			mode = MODE_EDIT;
 		}
 	}
-	while ((c = getopt(argc, argv, "eon")) != -1) {
+	while ((c = getopt(argc, argv, "c:eon")) != -1) {
 		switch (c) {
+		case 'c':
+			config = optarg;
+			break;
 		case 'e':
 			mode = MODE_EDIT;
 			break;
@@ -701,7 +714,7 @@ main(int argc, char *argv[])
 		errx(1, "could not get magic cookie");
 	if (magic_load(magic, NULL) == -1)
 		errx(1, "could not load magic database");
-	readrules(&sets);
+	readrules(&sets, config);
 	if (TAILQ_EMPTY(&sets)) {
 		freerules(&sets);
 		free(args);
