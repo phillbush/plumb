@@ -7,6 +7,7 @@
 .Sh SYNOPSIS
 .Nm
 .Op Fl eon
+.Op Fl a Ar action
 .Op Fl c Ar config
 .Ar arg ...
 .Sh DESCRIPTION
@@ -34,6 +35,8 @@ matching the arguments is the one chosen to be run.
 .Pp
 The options are as follows:
 .Bl -tag -width Ds
+.It Fl a Ar action
+Specify the action to be performed.
 .It Fl c Ar config
 Use the file
 .Ar config
@@ -42,35 +45,40 @@ rather than
 as the file containing plumbing rules.
 .It Fl e
 The action is to
-.Dq edit .
-Invoking
-.Nm
-with the basename of its
-.Ic "argv[0]"
-equal to
-.Dq "edit"
-is equivalent to invoke it with the
-.Fl e
-command-line option.
+.Qq edit .
+This is the same as the option
+.Fl a Cm edit .
 .It Fl o
 The action is to
-.Dq open .
+.Qq open .
+This is the same as the option
+.Fl a Cm open .
 This is the default action.
-Invoking
-.Nm
-with the basename of its
-.Ic "argv[0]"
-equal to
-.Dq "open"
-is equivalent to invoke it with the
-.Fl o
-command-line option.
 .It Fl n
 Dry-run.
 When this option is given,
 .Nm
 does not executes the matched program, but prints what would be executed to standard output.
 .El
+.Pp
+Invoking
+.Nm
+as
+.Qq open
+(that is, with the basename of its
+.Ic "argv[0]"
+equal to
+.Qq "open" )
+is equivalent to using the
+.Fl o
+option.
+Invoking
+.Nm
+as
+.Qq edit
+is equivalent to using the
+.Fl e
+option.
 .Sh USAGE
 .Nm
 reads rules from the file
@@ -259,7 +267,7 @@ data types mime
 Lines whose second word is
 .Dq "with"
 must have the name of an action type
-(either
+(like
 .Ic "open"
 or
 .Ic "edit" ) .

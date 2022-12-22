@@ -18,6 +18,8 @@
 #define MAXTOKENS       128
 #define RULESPATH       "lib/plumb"
 #define HOME            "HOME"
+#define ACTION_OPEN     "open"
+#define ACTION_EDIT     "edit"
 
 TAILQ_HEAD(FrameQueue, Frame);
 TAILQ_HEAD(RuleQueue, Rule);
@@ -50,13 +52,7 @@ struct Rule {
 		RULE_WITH,
 	} type;
 	regex_t reg;
-	union {
-		char *subj;
-		enum Mode {
-			MODE_OPEN,
-			MODE_EDIT,
-		} mode;
-	} u;
+	char *subj;
 	struct Stringa compls;
 };
 
@@ -69,7 +65,7 @@ struct Ruleset {
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: plumb [-eho] arg...\n");
+	(void)fprintf(stderr, "usage: plumb [-eon] [-a action] [-c config] arg...\n");
 	exit(1);
 }
 
@@ -174,7 +170,7 @@ newrule(char **toks, size_t ntoks, int isnew, const char *config, size_t lineno)
 {
 	struct Rule *rule;
 	regex_t reg;
-	int mode, res, type, n;
+	int res, type, n;
 	char errbuf[BUFSIZE];
 
 	if (strcmp(toks[1], "matches") == 0) {
@@ -189,7 +185,6 @@ newrule(char **toks, size_t ntoks, int isnew, const char *config, size_t lineno)
 	}
 	memset(&reg, 0, sizeof(reg));
 	n = 2;
-	mode = MODE_OPEN;
 	if (type == RULE_MATCHES) {
 		if (ntoks > 3) {
 			if (strcmp(toks[3], "into") != 0) {
@@ -216,25 +211,14 @@ newrule(char **toks, size_t ntoks, int isnew, const char *config, size_t lineno)
 			warnx("%s:%zu: \"with\" predicates on global ruleset has no effect", config, lineno);
 			return NULL;
 		}
-		if (strcmp(toks[0], "open") == 0) {
-			mode = MODE_OPEN;
-		} else if (strcmp(toks[0], "edit") == 0) {
-			mode = MODE_EDIT;
-		} else {
-			warnx("%s:%zu: unknown open mode \"%s\"", config, lineno, toks[0]);
-			return NULL;
-		}
 	}
 	rule = emalloc(sizeof(*rule));
 	*rule = (struct Rule){
 		.type = type,
 		.reg = reg,
 		.compls = newcompls(toks + n, ntoks - n),
+		.subj = estrdup(toks[0]),
 	};
-	if (type == RULE_WITH)
-		rule->u.mode = mode;
-	else
-		rule->u.subj = estrdup(toks[0]);
 	return rule;
 }
 
@@ -483,7 +467,7 @@ matchruleset(struct Ruleset *set, magic_t magic, struct Arg *arg, int local)
 	TAILQ_FOREACH(rule, &set->rules, entries) {
 		switch (rule->type) {
 		case RULE_MATCHES:
-			val = lookupvar(&arg->globals, &arg->locals, arg->data, rule->u.subj);
+			val = lookupvar(&arg->globals, &arg->locals, arg->data, rule->subj);
 			if (regexec(&rule->reg, val, MAXTOKENS, pmatch, 0) != 0) {
 				match = 0;
 				continue;
@@ -503,7 +487,7 @@ matchruleset(struct Ruleset *set, magic_t magic, struct Arg *arg, int local)
 			}
 			break;
 		case RULE_TYPES:
-			val = lookupvar(&arg->globals, &arg->locals, arg->data, rule->u.subj);
+			val = lookupvar(&arg->globals, &arg->locals, arg->data, rule->subj);
 			type = magic_file(magic, val);
 			len = (type != NULL) ? strlen(type) : 0;
 			insertvalue(frames, rule->compls.strs[0], type, len);
@@ -595,7 +579,7 @@ runargs(struct Stringa cmd, struct Arg *args, size_t nargs, int dryrun)
 }
 
 static void
-openwith(struct Ruleset *set, struct Arg *args, int nargs, enum Mode mode, int dryrun)
+openwith(struct Ruleset *set, struct Arg *args, int nargs, const char *action, int dryrun)
 {
 	struct Rule *rule;
 	size_t i;
@@ -607,7 +591,7 @@ openwith(struct Ruleset *set, struct Arg *args, int nargs, enum Mode mode, int d
 		printf("%s%s", (i == 0 ? "" : " "), set->name.strs[i]);
 	printf("\n");
 	TAILQ_FOREACH(rule, &set->rules, entries) {
-		if (rule->type == RULE_WITH && rule->u.mode == mode) {
+		if (rule->type == RULE_WITH && strcmp(rule->subj, action) == 0) {
 			runargs(rule->compls, args, nargs, dryrun);
 			return;
 		}
@@ -629,8 +613,7 @@ freerules(struct RulesetQueue *sets)
 				free(rule->compls.strs[i]);
 			if (rule->type == RULE_MATCHES)
 				regfree(&rule->reg);
-			if (rule->type != RULE_WITH)
-				free(rule->u.subj);
+			free(rule->subj);
 			free(rule);
 		}
 		for (i = 0; i < set->name.nstrs; i++)
@@ -668,11 +651,10 @@ main(int argc, char *argv[])
 	struct Arg *args;
 	magic_t magic;
 	int i, c;
-	enum Mode mode;
 	int dryrun;
-	char *cmd, *config;
+	char *cmd, *config, *action;
 
-	mode = MODE_OPEN;
+	action = ACTION_OPEN;
 	dryrun = 0;
 	config = NULL;
 	if (argc > 0 && argv[0] != NULL) {
@@ -681,24 +663,26 @@ main(int argc, char *argv[])
 		else
 			cmd = argv[0];
 		if (strcmp(cmd, "open") == 0) {
-			mode = MODE_OPEN;
+			action = ACTION_OPEN;
 		} else if (strcmp(cmd, "edit") == 0) {
-			mode = MODE_EDIT;
+			action = ACTION_EDIT;
 		}
 	}
-	while ((c = getopt(argc, argv, "c:eon")) != -1) {
+	while ((c = getopt(argc, argv, "a:c:eon")) != -1) {
 		switch (c) {
+		case 'a':
+			action = optarg;
 		case 'c':
 			config = optarg;
 			break;
 		case 'e':
-			mode = MODE_EDIT;
+			action = ACTION_EDIT;
 			break;
 		case 'n':
 			dryrun = 1;
 			break;
 		case 'o':
-			mode = MODE_OPEN;
+			action = ACTION_OPEN;
 			break;
 		default:
 			usage();
@@ -744,7 +728,7 @@ main(int argc, char *argv[])
 	}
 	magic_close(magic);
 	if (foundset != NULL)
-		openwith(foundset, args, argc, mode, dryrun);
+		openwith(foundset, args, argc, action, dryrun);
 	freerules(&sets);
 	freeargs(args, argc);
 	return (foundset == NULL);

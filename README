@@ -4,7 +4,7 @@ NAME
      plumb – run command on arguments matching rules
 
 SYNOPSIS
-     plumb [-eon] [-c config] arg ...
+     plumb [-eon] [-a action] [-c config] arg ...
 
 DESCRIPTION
      plumb pass the given arguments, as is or modified, to the best program
@@ -22,21 +22,25 @@ DESCRIPTION
 
      The options are as follows:
 
+     -a action
+             Specify the action to be performed.
+
      -c config
              Use the file config rather than ~/lib/plumb as the file
              containing plumbing rules.
 
-     -e      The action is to “edit”.  Invoking plumb with the basename of its
-             argv[0] equal to “edit” is equivalent to invoke it with the -e
-             command-line option.
+     -e      The action is to "edit".  This is the same as the option -a edit.
 
-     -o      The action is to “open”.  This is the default action.  Invoking
-             plumb with the basename of its argv[0] equal to “open” is
-             equivalent to invoke it with the -o command-line option.
+     -o      The action is to "open".  This is the same as the option -a open.
+             This is the default action.
 
      -n      Dry-run.  When this option is given, plumb does not executes the
              matched program, but prints what would be executed to standard
              output.
+
+     Invoking plumb as "open" (that is, with the basename of its argv[0] equal
+     to "open") is equivalent to using the -o option.  Invoking plumb as
+     "edit" is equivalent to using the -e option.
 
 USAGE
      plumb reads rules from the file $HOME/lib/plumb or from the file
