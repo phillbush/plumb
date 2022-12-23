@@ -366,7 +366,7 @@ file     types       mime
 rules    for         youtube video
 protocol matches     '(ytdl|'$HTTP')?'
 file     matches     '(.*/)?[A-Za-z0-9_-]{11}'
-open     with        mpv --force-window=immediate -- ytdl://%file
+open     with        mpv --force-window=immediate -- %data
 
 rules    for         html file
 protocol matches     '(file)?'
