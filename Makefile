@@ -22,7 +22,7 @@ ${PROG}: ${OBJS}
 	${CC} -std=c99 -pedantic ${DEFS} ${INCS} ${CFLAGS} ${CPPFLAGS} -o $@ -c $<
 
 README: ${MAN}
-	mandoc -T ascii ${MAN} | col -b >README
+	mandoc -I os=UNIX -T ascii ${MAN} | col -b | expand -t 8 >README
 
 tags: ${SRCS}
 	ctags ${SRCS}

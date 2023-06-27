@@ -1,7 +1,7 @@
 PROG(1)                     General Commands Manual                    PROG(1)
 
 NAME
-     plumb – run command on arguments matching rules
+     plumb - run command on arguments matching rules
 
 SYNOPSIS
      plumb [-eon] [-a actions] [-c config] arg ...
@@ -126,9 +126,7 @@ USAGE
 
            rules for video files
 
-     The arguments of a "FOR-line" are the name of the ruleset.  When a
-     ruleset is matched for all the arguments, its name is printed to standard
-     output.
+     The arguments of a "FOR-line" are the name of the ruleset.
 
      Conditions in a ruleset are only checked within the ruleset.  Variables
      set in a ruleset are only valid within the ruleset.
@@ -225,7 +223,7 @@ FILES
              plumb's default configuration file.
 
 EXIT STATUS
-     The plumb utility exits 0 on success, and >0 if an error occurs.
+     The plumb utility exits 0 on success, and >0 if an error occurs.
 
      It is an error if no ruleset matches for an argument.
 
@@ -279,4 +277,4 @@ HISTORY
 BUGS
      Yes.
 
-OpenBSD 7.2                     October 3, 2022                    OpenBSD 7.2
+UNIX                             June 26, 2023                            UNIX

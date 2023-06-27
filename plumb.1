@@ -1,4 +1,4 @@
-.Dd October 3, 2022
+.Dd June 26, 2023
 .Dt PROG 1
 .Os
 .Sh NAME
@@ -200,8 +200,6 @@ rules for video files
 The arguments of a
 .Qq FOR-line
 are the name of the ruleset.
-When a ruleset is matched for all the arguments,
-its name is printed to standard output.
 .Pp
 Conditions in a ruleset are only checked within the ruleset.
 Variables set in a ruleset are only valid within the ruleset.
@@ -334,7 +332,7 @@ Just like environment variables, the percent sign can be escaped by doubling it.
 The name of the variable can also occur between curly braces.
 .Sh ENVIRONMENT
 The following environment variables affect the execution of
-.Nm Ns .
+.Nm .
 .Bl -tag -width Ds
 .It Ev HOME
 Path to the directory to search for the file
@@ -351,7 +349,7 @@ it is an error for this variable to not be set.
 default configuration file.
 .El
 .Sh EXIT STATUS
-.Ex
+.Ex -std
 .Pp
 It is an error if no ruleset matches for an argument.
 .Sh EXAMPLES

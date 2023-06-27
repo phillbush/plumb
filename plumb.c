@@ -602,10 +602,10 @@ openwith(struct Ruleset *set, struct Arg *args, int nargs, const char *actions, 
 
 	(void)args;
 	(void)nargs;
-	printf("plumbing ");
+	(void)fprintf(stderr, "plumbing ");
 	for (i = 0; i < set->name.nstrs; i++)
-		printf("%s%s", (i == 0 ? "" : " "), set->name.strs[i]);
-	printf("\n");
+		(void)fprintf(stderr, "%s%s", (i == 0 ? "" : " "), set->name.strs[i]);
+	(void)fprintf(stderr, "\n");
 	TAILQ_FOREACH(rule, &set->rules, entries) {
 		if (rule->type == RULE_WITH && strstr(actions, rule->subj) != NULL) {
 			runargs(rule->compls, args, nargs, dryrun);
