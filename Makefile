@@ -1,38 +1,47 @@
 PROG = plumb
 OBJS = ${PROG:=.o}
 SRCS = ${OBJS:.o=.c}
-MANS = ${PROG:=.1}
+MAN  = ${PROG:=.1}
 
-PREFIX = /usr/local
-MANPREFIX = ${PREFIX}/share/man
+PREFIX ?= /usr/local
+MANPREFIX ?= ${PREFIX}/share/man
 
-LIBS = -lmagic
+DEFS = -D_POSIX_C_SOURCE=200809L -DGNU_SOURCE -D_BSD_SOURCE
+LIBS = -L/usr/local/lib -lmagic
+INCS = -I/usr/local/include
+
+bindir = ${DESTDIR}${PREFIX}/bin
+mandir = ${DESTDIR}${MANPREFIX}/man1
 
 all: ${PROG} README
 
 ${PROG}: ${OBJS}
-	${CC} -L/usr/local/lib ${LIBS} ${LDFLAGS} -o $@ ${OBJS}
+	${CC} -o $@ ${OBJS} ${LIBS} ${LDFLAGS}
 
 .c.o:
-	${CC} -I/usr/local/include ${CFLAGS} ${CPPFLAGS} -c $<
+	${CC} -std=c99 -pedantic ${DEFS} ${INCS} ${CFLAGS} ${CPPFLAGS} -o $@ -c $<
 
-README: ${MANS}
-	man -l ${MANS} | sed 's/.//g' >README
+README: ${MAN}
+	mandoc -T ascii ${MAN} | col -b >README
 
 tags: ${SRCS}
 	ctags ${SRCS}
+
+lint: ${SRCS}
+	-mandoc -T lint -W warning ${MAN}
+	-clang-tidy ${SRCS} -- -std=c99 ${DEFS} ${INCS} ${CPPFLAGS}
 
 clean:
 	rm -f ${OBJS} ${PROG} ${PROG:=.core} tags
 
 install: all
-	install -d ${DESTDIR}${PREFIX}/bin
-	install -d ${DESTDIR}${MANPREFIX}/man1
-	install -m 755 ${PROG} ${DESTDIR}${PREFIX}/bin/${PROG}
-	install -m 644 ${MANS} ${DESTDIR}${MANPREFIX}/man1/${MANS}
+	mkdir -p ${bindir}
+	mkdir -p ${mandir}
+	install -m 755 ${PROG} ${bindir}/${PROG}
+	install -m 644 ${MAN} ${mandir}/${MAN}
 
 uninstall:
-	rm ${DESTDIR}${PREFIX}/bin/${PROG}
-	rm ${DESTDIR}${MANPREFIX}/man1/${MANS}
+	-rm ${bindir}/${PROG}
+	-rm ${mandir}/${MAN}
 
-.PHONY: all tags clean install uninstall
+.PHONY: all tags clean install uninstall lint
