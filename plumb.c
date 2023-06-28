@@ -1,11 +1,13 @@
-#include <sys/queue.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 
+#include <assert.h>
 #include <err.h>
 #include <ctype.h>
 #include <limits.h>
 #include <regex.h>
+#include <spawn.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -13,60 +15,94 @@
 
 #include <magic.h>
 
-#define BUFSIZE         1024
+#define LEN(a)          (sizeof(a) / sizeof((a)[0]))
 #define ENVVAR_MAX      128
 #define MAXTOKENS       128
-#define RULESPATH       "lib/plumb"
+#define RULESPATH       "/lib/plumb"
 #define HOME            "HOME"
 #define ACTION_OPEN     "open"
 #define ACTION_EDIT     "edit"
+#define ALPHANUM        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"
 
-TAILQ_HEAD(FrameQueue, Frame);
-TAILQ_HEAD(RuleQueue, Rule);
-TAILQ_HEAD(RulesetQueue, Ruleset);
-
-struct Frame {
-	/* singly-linked list of name-value pairs */
-	TAILQ_ENTRY(Frame) entries;
+struct Variable {
+	struct Variable *next;
 	char *name;
 	char *value;
-};
+} *globals, *locals;
 
-struct Arg {
-	struct FrameQueue globals;
-	struct FrameQueue locals;
-	const char *data;
-};
-
-struct Stringa {
-	/* string array */
-	size_t nstrs;
-	char **strs;
-};
-
-struct Rule {
-	TAILQ_ENTRY(Rule) entries;
-	enum {
-		RULE_MATCHES,
-		RULE_TYPES,
-		RULE_WITH,
-	} type;
-	regex_t reg;
-	char *subj;
-	struct Stringa compls;
+struct Argument {
+	struct Variable *globals, *locals;
+	char *data;
 };
 
 struct Ruleset {
-	TAILQ_ENTRY(Ruleset) entries;
-	struct RuleQueue rules;
-	struct Stringa name;
+	/*
+	 * Each block of rule, initiated by a "rules for <RULESET_NAME>"
+	 * line on the config file, is a ruleset.  A ruleset is made of
+	 * its name (as an array of arguments) and a list of rules.
+	 *
+	 * Each rule represents a line in the config file with the form
+	 * "<SUBJ> <TYPE> <ARGS>".  <SUBJ> is a string that dictates the
+	 * rule's subject; <TYPE> is the string "matches", "types" or
+	 * "with"; and <ARGS> is an array of argument strings.
+	 *
+	 * A rule of type "matches" has a special argument.  Its first
+	 * argument is a regular expression, while the following
+	 * optional arguments are strings.
+	 */
+	struct Ruleset *next;
+	struct Rule {
+		struct Ruleset *set;
+		struct Rule *next;
+		char *subj;
+		enum Type {
+			RULE_MATCHES,
+			RULE_TYPES,
+			RULE_WITH,
+		} type;
+		regex_t reg;            /* only used in "matches" rules */
+		char **argv;
+		size_t argc;
+	} *rules;
+	char **argv;
+	size_t argc;
 };
+
+struct Parsectx {
+	/*
+	 * Context for parsing the config file.
+	 */
+	FILE *fp;
+	const char *filename;
+	size_t lineno;
+	bool goterror;
+};
+
+extern char **environ;
 
 static void
 usage(void)
 {
 	(void)fprintf(stderr, "usage: plumb [-eon] [-a actions] [-c config] arg...\n");
-	exit(1);
+	exit(EXIT_FAILURE);
+}
+
+static void *
+erealloc(void *p, size_t size)
+{
+	if ((p = realloc(p, size)) == NULL)
+		err(EXIT_FAILURE, "realloc");
+	return p;
+}
+
+static void *
+ecalloc(size_t nmemb, size_t size)
+{
+	void *p;
+
+	if ((p = calloc(nmemb, size)) == NULL)
+		err(EXIT_FAILURE, "calloc");
+	return p;
 }
 
 static void *
@@ -75,24 +111,7 @@ emalloc(size_t size)
 	void *p;
 
 	if ((p = malloc(size)) == NULL)
-		err(1, "malloc");
-	return p;
-}
-
-static void *
-erealloc(void *p, size_t size)
-{
-	if ((p = realloc(p, size)) == NULL)
-		err(1, "realloc");
-	return p;
-}
-
-static void *
-ecalloc(size_t nmemb, size_t size)
-{
-	void *p;
-	if ((p = calloc(nmemb, size)) == NULL)
-		err(1, "calloc");
+		err(EXIT_FAILURE, "malloc");
 	return p;
 }
 
@@ -102,7 +121,7 @@ estrdup(const char *s)
 	char *p;
 
 	if ((p = strdup(s)) == NULL)
-		err(1, "strdup");
+		err(EXIT_FAILURE, "strdup");
 	return p;
 }
 
@@ -112,7 +131,7 @@ estrndup(const char *s, size_t maxlen)
 	char *p;
 
 	if ((p = strndup(s, maxlen)) == NULL)
-		err(1, "strndup");
+		err(EXIT_FAILURE, "strndup");
 	return p;
 }
 
@@ -122,57 +141,51 @@ efork(void)
 	pid_t pid;
 
 	if ((pid = fork()) < 0)
-		err(1, "fork");
+		err(EXIT_FAILURE, "fork");
 	return pid;
 }
 
-static const char *
-getconfig(char *path, size_t size)
-{
-	char *home;
-
-	if ((home = getenv(HOME)) == NULL)
-		errx(1, "could not find $HOME");
-	snprintf(path, size, "%s/%s", home, RULESPATH);
-	return path;
-}
-
-static FILE *
-openrules(const char *path)
-{
-	FILE *fp;
-
-	if ((fp = fopen(path, "r")) == NULL)
-		err(1, "%s", path);
-	return fp;
-}
-
 static int
-isnewruleset(char **toks, size_t ntoks)
+beginsruleset(char **toks, size_t ntoks)
 {
-	return ntoks > 2 && strcmp(toks[1], "for") == 0;
+	return ntoks > 2 &&
+		strcmp(toks[0], "rules") == 0 &&
+		strcmp(toks[1], "for") == 0;
 }
 
-static struct Stringa
-newcompls(char **toks, size_t ntoks)
+static void
+syntaxerr(struct Parsectx *parse, const char *msg, const char *arg)
 {
-	struct Stringa compls;
-
-	compls.nstrs = ntoks;
-	compls.strs = ecalloc(ntoks, sizeof(*compls.strs));
-	while (ntoks-- > 0)
-		compls.strs[ntoks] = estrdup(toks[ntoks]);
-	return compls;
+	if (arg == NULL) {
+		warnx(
+			"%s:%zu: syntax error: %s",
+			parse->filename,
+			parse->lineno,
+			msg
+		);
+	} else {
+		warnx(
+			"%s:%zu: syntax error: %s \"%s\"",
+			parse->filename,
+			parse->lineno,
+			msg,
+			arg
+		);
+	}
+	parse->goterror = true;
 }
 
 static struct Rule *
-newrule(char **toks, size_t ntoks, int isnew, const char *config, size_t lineno)
+newrule(struct Parsectx *parse, char *toks[], size_t ntoks)
 {
 	struct Rule *rule;
 	regex_t reg;
-	int flags, res, type, n;
-	char errbuf[BUFSIZE];
+	size_t i, n;
+	int flags, res;
+	enum Type type;
+	char errbuf[1024];
 
+	assert(ntoks > 2);      /* we handle ntoks <= 2 before */
 	flags = REG_EXTENDED;
 	if (strcmp(toks[1], "matches") == 0) {
 		type = RULE_MATCHES;
@@ -184,569 +197,633 @@ newrule(char **toks, size_t ntoks, int isnew, const char *config, size_t lineno)
 	} else if (strcmp(toks[1], "with") == 0) {
 		type = RULE_WITH;
 	} else {
-		warnx("%s:%zu: unknown predicate \"%s\"", config, lineno, toks[1]);
+		syntaxerr(parse, "unknown predicate", toks[1]);
 		return NULL;
 	}
 	memset(&reg, 0, sizeof(reg));
 	n = 2;
-	if (type == RULE_MATCHES) {
+	switch (type) {
+	case RULE_MATCHES:
+		n++;
 		if (ntoks > 3) {
 			if (strcmp(toks[3], "into") != 0) {
-				warnx("%s:%zu: unknown argument \"%s\"", config, lineno, toks[3]);
+				syntaxerr(parse, "unknown argument", toks[3]);
 				return NULL;
 			}
-			n = 4;
-		} else {
-			n = 3;
+			n++;
 		}
 		if ((res = regcomp(&reg, toks[2], flags)) != 0) {
 			if (regerror(res, &reg, errbuf, sizeof(errbuf)) > 0)
-				warnx("%s:%zu: %s", config, lineno, errbuf);
+				syntaxerr(parse, errbuf, NULL);
 			else
-				warnx("%s:%zu: wrong regex \"%s\"", config, lineno, toks[2]);
+				syntaxerr(parse, "wrong regex", toks[2]);
 			regfree(&reg);
 			return NULL;
 		}
-	} else if (type == RULE_TYPES && ntoks != 3) {
-		warnx("%s:%zu: syntax error", config, lineno);
-		return NULL;
-	} else if (type == RULE_WITH) {
-		if (isnew) {
-			warnx("%s:%zu: \"with\" predicates on global ruleset has no effect", config, lineno);
+		break;
+	case RULE_TYPES:
+		if (ntoks != 3) {
+			syntaxerr(parse, "improper \"types\" rule", NULL);
 			return NULL;
 		}
+		break;
+	case RULE_WITH:
+		/* we deal with this later */
+		break;
 	}
 	rule = emalloc(sizeof(*rule));
 	*rule = (struct Rule){
+		.set = NULL,
 		.type = type,
 		.reg = reg,
-		.compls = newcompls(toks + n, ntoks - n),
-		.subj = estrdup(toks[0]),
+		.argv = NULL,
+		.argc = 0,
+		.subj = toks[0],
 	};
+	if (n < ntoks) {
+		rule->argc = ntoks - n;
+		rule->argv = ecalloc(rule->argc, sizeof(*rule->argv));
+		memcpy(rule->argv, toks + n, rule->argc * sizeof(*rule->argv));
+	}
+	for (i = 1; i < n; i++)
+		free(toks[i]);
 	return rule;
 }
 
-static int
-isalnum_(char c)
-{
-	return (c >= 'A' && c <= 'Z') ||
-	       (c >= 'a' && c <= 'z') ||
-	       (c >= '0' && c <= '9') ||
-	       c == '_';
-}
-
 static void
-insertvalue(struct FrameQueue *frames, const char *name, const char *value, size_t len)
+insertvar(struct Variable **head, char *name, char *value)
 {
-	struct Frame *frame;
+	struct Variable *var;
 
-	TAILQ_FOREACH(frame, frames, entries) {
-		if (strcmp(frame->name, name) == 0) {
-			free(frame->value);
-			frame->value = estrndup(value, len);
+	if (name == NULL) {
+		free(value);
+		return;
+	}
+	for (var = *head; var != NULL; var = var->next) {
+		if (strcmp(var->name, name) == 0) {
+			free(var->value);
+			var->value = value;
 			return;
 		}
 	}
-	frame = emalloc(sizeof(*frame));
-	*frame = (struct Frame){
-		.name = estrdup(name),
-		.value = (value != NULL && len > 0) ? estrndup(value, len) : NULL,
+	var = emalloc(sizeof(*var));
+	*var = (struct Variable){
+		.name = name,
+		.value = value,
 	};
-	TAILQ_INSERT_HEAD(frames, frame, entries);
+	var->next = *head;
+	*head = var;
 }
 
-static const char *
-lookupenv(struct FrameQueue *env, const char *name)
+static char *
+lookupvar(struct Variable *var, const char *name)
 {
-	struct Frame *frame;
-	char *val;
-
 	if (name == NULL)
-		return "";
-	TAILQ_FOREACH(frame, env, entries)
-		if (strcmp(frame->name, name) == 0)
-			return frame->value != NULL ? frame->value : "";
-	val = getenv(name);
-	return val != NULL ? val : "";
+		return NULL;
+	for ( ; var != NULL; var = var->next)
+		if (strcmp(var->name, name) == 0)
+			return var->value != NULL ? var->value : "";
+	return getenv(name);
 }
 
-static void
-readrules(struct RulesetQueue *sets, const char *config)
+static size_t
+strnrspn(char *buf, char *charset, size_t len)
 {
-	enum {
-		QUOTE,
-		WORD,
-	} state;
-	struct FrameQueue env;
-	struct Ruleset *set;
-	struct Rule *rule;
-	FILE *fp;
-	size_t k, len, lineno;
-	size_t linesize = 0;
-	size_t tokindices[MAXTOKENS];
-	ssize_t i, j, ntoks;
-	ssize_t linelen;
-	int setvar, newset;
-	const char *envval;
-	char *tokens[MAXTOKENS];
-	char *line = NULL;
-	char defconfig[PATH_MAX];
-	char newvar[ENVVAR_MAX];
-	char envvar[ENVVAR_MAX];
+	while (len > 0 && strchr(charset, buf[len - 1]) != NULL)
+		len--;
+	return len;
+}
 
-	if (config == NULL)
-		config = getconfig(defconfig, sizeof(defconfig));
-	fp = openrules(config);
-	lineno = 0;
-	TAILQ_INIT(sets);
-	TAILQ_INIT(&env);
-	while ((linelen = getline(&line, &linesize, fp)) != -1) {
-		lineno++;
-		ntoks = 0;
-		i = 0;
-		while (isspace((unsigned char)line[i]))
-			i++;
-		while (linelen > 0 && isspace((unsigned char)line[linelen - 1]))
-			line[--linelen] = '\0';
-		if (strchr("#\n", line[i]) != NULL)
-			continue;
-		j = i;
-		k = 0;
-		setvar = 0;
-		while (isalnum_(line[j]) && k < ENVVAR_MAX - 1)
-			newvar[k++] = line[j++];
-		if (j > i) {
-			/* check environment-like variable assignment */
-			while (isspace((unsigned char)line[j]))
-				j++;
-			if (line[j] == '=') {
-				j++;
-				while (isspace((unsigned char)line[j]))
-					j++;
-				newvar[k] = '\0';
-				setvar = 1;
-				i = j;
-			}
-		}
-		state = WORD;
-		for ( ; i < linelen && line[i] != '\0'; i++) {
-			while (isspace((unsigned char)line[i]))
-				i++;
-			if (strchr("\n", line[i]) != NULL || ntoks == MAXTOKENS)
+static size_t
+tokenize(struct Parsectx *parse, struct Variable *env, char *str, char *toks[], size_t maxtoks)
+{
+	char *buf, *val;
+	size_t ntoks, bufsize, len;
+	size_t j, k;
+	char c;
+	bool inquote = false;
+
+	ntoks = 0;
+	bufsize = 0;
+	buf = NULL;
+	while (*str != '\0' && ntoks < maxtoks) {
+		str += strspn(str, " \t");
+		j = 0;
+		while (*str != '\0') {
+			if (!inquote && strchr(" \t", *str))
+				break;
+			val = NULL;
+			if (!inquote && str[0] == '$' && str[1] == '{') {
+				/* ${VARIABLE} */
+				str += 2;
+				k = strcspn(str, "}");
+				if (k == 0) {
+					syntaxerr(parse, "bad substitution", "${}");
+					goto error;
+				}
+				if (str[k] != '}') {
+					syntaxerr(parse, "unmatching bracket", NULL);
+					goto error;
+				}
+				str[k] = '\0';
+				if ((val = lookupvar(env, str)) == NULL)
+					val = "";
+				len = strlen(val);
+				str += k + 1;
+			} else if (!inquote && str[0] == '$' && str[1] == '$') {
+				/* $$ */
+				str += 2;
+				val = "$";
+				len = 1;
+			} else if (!inquote && str[0] == '$') {
+				/* $VARIABLE */
+				str++;
+				k = strspn(str, ALPHANUM);
+				if (k == 0) {
+					syntaxerr(parse, "bad substitution", "$");
+					goto error;
+				}
+				c = str[k];
+				str[k] = '\0';
+				if ((val = lookupvar(env, str)) == NULL)
+					val = "";
+				len = strlen(val);
+				str += k;
+				if (c != '\0') {
+					str[0] = c;
+				}
+			} else if (inquote && str[0] == '\'' && str[1] == '\'') {
+				/* '' */
+				str += 2;
+				val = "'";
+				len = 1;
+			} else if (str[0] == '\'') {
+				/* ' */
+				inquote = !inquote;
+				str++;
 				continue;
-			if (line[i] == '\'') {
-				state = QUOTE;
-				i++;
 			} else {
-				state = WORD;
+				/* char */
+				val = str;
+				len = 1;
+				str++;
 			}
-			j = i;
-			tokindices[ntoks++] = i;
-			while (j < linelen && line[i] != '\0') {
-				if (state == WORD && isspace((unsigned char)line[i])) {
-					line[j] = '\0';
-					break;
-				} else if (state == WORD && line[i] == '$') {
-					k = 0;
-					if (line[i+1] == '$') {
-						line[j++] = '$';
-						i += 2;
-						continue;
-					} else if (line[i+1] == '{') {
-						i += 2;
-						while (line[i] != '\0' && line[i] != '}' && k < ENVVAR_MAX - 1) {
-							envvar[k++] = line[i++];
-						}
-						if (line[i] != '\0') {
-							i++;
-						}
-					} else {
-						i++;
-						while (isalnum_(line[i]) && k < ENVVAR_MAX - 1) {
-							envvar[k++] = line[i++];
-						}
-					}
-					envvar[k] = '\0';
-					if (k == 0)
-						continue;
-					envval = lookupenv(&env, envvar);
-					len = strlen(envval);
-					if (len + linelen + 1 > linesize) {
-						line = erealloc(line, len + linelen + 1);
-					}
-					memmove(line + j + len, line + i, strlen(line + i) + 1);
-					memcpy(line + j, envval, len);
-					linelen -= i - j;
-					linelen += len;
-					j += len;
-					i = j;
-					line[linelen] = '\0';
-					continue;
-				} else if (state == QUOTE && line[i] == '\'') {
-					if (isspace((unsigned char)line[i+1])) {
-						line[j] = '\0';
-						i++;
-						break;
-					} else if (line[i+1] == '\'') {
-						line[j++] = '\'';
-						i++;
-					} else {
-						state = WORD;
-					}
-				} else if (state == WORD && line[i] == '\'') {
-					state = QUOTE;
-				} else {
-					line[j++] = line[i];
-				}
-				i++;
+			if (j + len + 1 > bufsize) {
+				bufsize += len + 128;
+				buf = erealloc(buf, bufsize);
 			}
-			line[j] = '\0';
+			memcpy(buf + j, val, len);
+			j += len;
 		}
-		for (i = 0; i < ntoks; i++)
-			tokens[i] = &line[tokindices[i]];
-		if (setvar) {
-			if (ntoks > 0)
-				insertvalue(&env, estrdup(newvar), tokens[0], strlen(tokens[0]));
-			else
-				insertvalue(&env, estrdup(newvar), "", 0);
-			continue;
-		}
-		if (ntoks < 3) {
-			warnx("%s:%zu: syntax error", config, lineno);
-			continue;
-		}
-		newset = isnewruleset(tokens, ntoks);
-		if (TAILQ_EMPTY(sets) || newset) {
-			set = emalloc(sizeof(*set));
-			set->name.nstrs = 0;
-			TAILQ_INIT(&set->rules);
-			TAILQ_INSERT_TAIL(sets, set, entries);
-		}
-		if (newset) {
-			if (strcmp(tokens[0], "rules") != 0) {
-				warnx("%s:%zu: syntax error", config, lineno);
-				continue;
-			}
-			set->name = newcompls(tokens + 2, ntoks - 2);
-		} else {
-			if ((rule = newrule(tokens, ntoks, newset, config, lineno)) == NULL)
-				continue;
-			TAILQ_INSERT_TAIL(&set->rules, rule, entries);
-		}
+		if (buf == NULL)
+			return 0;
+		buf[j] = '\0';
+		toks[ntoks++] = estrdup(buf);
 	}
-	fclose(fp);
-}
-
-static const char *
-lookupvar(struct FrameQueue *globals, struct FrameQueue *locals, const char *data, const char *name)
-{
-	struct Frame *frame;
-
-	if (name == NULL)
-		return "";
-	TAILQ_FOREACH(frame, locals, entries)
-		if (strcmp(frame->name, name) == 0)
-			return frame->value != NULL ? frame->value : "";
-	TAILQ_FOREACH(frame, globals, entries)
-		if (strcmp(frame->name, name) == 0)
-			return frame->value != NULL ? frame->value : "";
-	if (strcmp(name, "data") == 0)
-		return data != NULL ? data : "";
-	return "";
-}
-
-static int
-matchruleset(struct Ruleset *set, magic_t magic, struct Arg *arg, char *actions, int local)
-{
-	struct Rule *rule;
-	struct FrameQueue *frames;
-	regmatch_t pmatch[MAXTOKENS];
-	size_t i;
-	regoff_t beg, len;
-	int match;
-	const char *val, *type;
-
-	match = 1;
-	frames = (local ? &arg->locals : &arg->globals);
-	TAILQ_FOREACH(rule, &set->rules, entries) {
-		switch (rule->type) {
-		case RULE_MATCHES:
-			val = lookupvar(&arg->globals, &arg->locals, arg->data, rule->subj);
-			if (regexec(&rule->reg, val, MAXTOKENS, pmatch, 0) != 0) {
-				match = 0;
-				continue;
-			}
-			if (pmatch[0].rm_so != 0 || val[pmatch[0].rm_eo] != '\0') {
-				match = 0;
-				continue;
-			}
-			for (i = 0; i < rule->reg.re_nsub && i < rule->compls.nstrs; i++) {
-				beg = pmatch[i + 1].rm_so;
-				len = pmatch[i + 1].rm_eo - beg;
-				if (beg >= 0 && len >= 0) {
-					insertvalue(frames, rule->compls.strs[i], val + beg, len);
-				} else {
-					insertvalue(frames, rule->compls.strs[i], NULL, 0);
-				}
-			}
-			break;
-		case RULE_TYPES:
-			val = lookupvar(&arg->globals, &arg->locals, arg->data, rule->subj);
-			type = magic_file(magic, val);
-			len = (type != NULL) ? strlen(type) : 0;
-			insertvalue(frames, rule->compls.strs[0], type, len);
-			break;
-		case RULE_WITH:
-			/* we deal with this later */
-			break;
-		}
-	}
-	if (!match)
-		return 0;
-	TAILQ_FOREACH(rule, &set->rules, entries) {
-		switch (rule->type) {
-		case RULE_WITH:
-			if (strstr(actions, rule->subj) != NULL)
-				return 1;
-			break;
-		default:
-			break;
-		}
-	}
+	free(buf);
+	return ntoks;
+error:
+	free(buf);
+	for (j = 0; j < ntoks; j++)
+		free(toks[j]);
 	return 0;
 }
 
 static void
-runargs(struct Stringa cmd, struct Arg *args, size_t nargs, int dryrun)
+freevars(struct Variable *head, bool freename)
 {
-	struct Stringa newargs;
-	ssize_t beg, end;
-	size_t i, j, len, size;
-	const char *val;
-	char *s, *name;
-	char **argv;
+	struct Variable *tmp;
 
-	newargs.nstrs = nargs;
-	s = cmd.strs[cmd.nstrs - 1];
-	beg = end = -1;
-	for (i = j = 0; s[i] != '\0'; i++) {
-		if (s[i] == '%') {
-			i++;
-			if (s[i] == '%') {
-				s[j++] = '%';
-			} else if (s[i] == '{') {
-				i++;
-				beg = j;
-				while (isalnum_(s[i]))
-					s[j++] = s[i++];
-				end = j;
-				if (s[i] != '\0') {
-					i++;
-				}
-			} else {
-				beg = j;
-				while (isalnum_(s[i]))
-					s[j++] = s[i++];
-				end = j;
-			}
+	while (head != NULL) {
+		tmp = head;
+		head = head->next;
+		if (freename)
+			free(tmp->name);
+		free(tmp->value);
+		free(tmp);
+	}
+}
+
+static struct Ruleset *
+readrules(struct Parsectx *parse)
+{
+	struct Rule *rule = NULL, *currule;
+	struct Ruleset *head = NULL, *curset, *set;
+	struct Variable *env = NULL;
+	ssize_t linelen;
+	size_t ntoks, n, i;
+	size_t linesize = 0;
+	char *toks[MAXTOKENS];
+	char *line = NULL;
+	char *str = NULL;
+
+	head = curset = emalloc(sizeof(*curset));
+	*curset = (struct Ruleset){ 0 };
+	while ((linelen = getline(&line, &linesize, parse->fp)) != -1) {
+		parse->lineno++;
+		str = line;
+		n = strspn(line, " \t");
+		str += n;
+		linelen -= n;
+		str[strnrspn(line, " \t\n", linelen)] = '\0';
+		if (str[0] == '\0' || str[0] == '#')
 			continue;
+		if ((ntoks = tokenize(parse, env, str, toks, LEN(toks))) == 0)
+			continue;
+		if (ntoks < 3) {
+			syntaxerr(parse, "improper rule", NULL);
+			goto error;
 		}
-		s[j++] = s[i];
-	}
-	s[j] = '\0';
-	len = strlen(cmd.strs[cmd.nstrs - 1]);
-	name = NULL;
-	if (beg >= 0 && end > beg) {
-		len -= end - beg;
-		name = estrndup(s + beg, end - beg);
-	}
-	newargs.strs = ecalloc(nargs, sizeof(*newargs.strs));
-	for (i = 0; i < nargs; i++) {
-		val = lookupvar(&args[i].globals, &args[i].locals, args[i].data, name);
-		size = len + strlen(val) + 1;           /* +1 for '\0' */
-		newargs.strs[i] = emalloc(size);
-		snprintf(newargs.strs[i], size, "%.*s%s%s", (int)beg, s, val, s + end);
-	}
-	free(name);
-	size = cmd.nstrs + nargs;
-	argv = ecalloc(size, sizeof(*argv));
-	for (i = 0; i < cmd.nstrs - 1; i++)
-		argv[i] = cmd.strs[i];
-	for (j = 0; j < nargs; j++)
-		argv[i+j] = newargs.strs[j];
-	argv[i+j] = NULL;
-	if (dryrun) {
-		for (i = 0; i < size - 1; i++)
-			printf("%s%s", (i == 0 ? "" : " "), argv[i]);
-		printf("\n");
-	} else {
-		if (efork() == 0) {
-			if (efork() == 0) {
-				execvp(argv[0], argv);
-				err(1, "%s", argv[0]);
+		if (toks[1][0] == '=' && toks[1][1] == '\0') {
+			/* variable assignment */
+			if (ntoks != 3) {
+				syntaxerr(parse, "bad variable assignment", NULL);
+				goto error;
 			}
-			exit(0);
+			insertvar(&env, toks[0], toks[2]);
+			free(toks[1]);         /* free "=" */
+			continue;
+		} else if (beginsruleset(toks, ntoks)) {
+			/* a new ruleset begins */
+			set = emalloc(sizeof(*set));
+			*set = (struct Ruleset){
+				.next = NULL,
+				.rules = NULL,
+				.argv = NULL,
+				.argc = ntoks - 2,
+			};
+			set->argv = ecalloc(set->argc, sizeof(*set->argv));
+			memcpy(set->argv, toks + 2, set->argc * sizeof(*set->argv));
+			free(toks[0]);          /* free "rules" */
+			free(toks[1]);          /* free "for" */
+			curset->next = set;
+			curset = set;
+		} else if ((rule = newrule(parse, toks, ntoks)) != NULL) {
+			/* new rule for current ruleset */
+			rule->set = curset;
+			if (curset->rules == NULL)
+				curset->rules = rule;
+			else
+				currule->next = rule;
+			currule = rule;
+		} else {
+			syntaxerr(parse, "improper rule", NULL);
+error:
+			for (i = 0; i < ntoks; i++) {
+				free(toks[i]);
+			}
 		}
-		wait(NULL);
 	}
-	for (i = 0; i < nargs; i++)
-		free(newargs.strs[i]);
-	free(newargs.strs);
+	freevars(env, true);
+	free(line);
+	return head;
 }
 
-static void
-openwith(struct Ruleset *set, struct Arg *args, int nargs, const char *actions, int dryrun)
+static char *
+getconfig(void)
 {
-	struct Rule *rule;
-	size_t i;
+	char *home, *filename;
+	size_t size;
 
-	(void)args;
-	(void)nargs;
-	(void)fprintf(stderr, "plumbing ");
-	for (i = 0; i < set->name.nstrs; i++)
-		(void)fprintf(stderr, "%s%s", (i == 0 ? "" : " "), set->name.strs[i]);
-	(void)fprintf(stderr, "\n");
-	TAILQ_FOREACH(rule, &set->rules, entries) {
-		if (rule->type == RULE_WITH && strstr(actions, rule->subj) != NULL) {
-			runargs(rule->compls, args, nargs, dryrun);
-			return;
-		}
-	}
+	if ((home = getenv(HOME)) == NULL)
+		errx(EXIT_FAILURE, "could not find $HOME");
+	size = strlen(home) + sizeof(RULESPATH);
+	filename = emalloc(size);
+	(void)snprintf(filename, size, "%s" RULESPATH, home);
+	return filename;
+
 }
 
 static void
-freerules(struct RulesetQueue *sets)
+freerules(struct Ruleset *head)
 {
 	struct Ruleset *set;
 	struct Rule *rule;
 	size_t i;
 
-	while ((set = TAILQ_FIRST(sets)) != NULL) {
-		TAILQ_REMOVE(sets, set, entries);
-		while ((rule = TAILQ_FIRST(&set->rules)) != NULL) {
-			TAILQ_REMOVE(&set->rules, rule, entries);
-			for (i = 0; i < rule->compls.nstrs; i++)
-				free(rule->compls.strs[i]);
+	while (head != NULL) {
+		set = head;
+		head = set->next;
+		while (set->rules != NULL) {
+			rule = set->rules;
+			set->rules = rule->next;
 			if (rule->type == RULE_MATCHES)
 				regfree(&rule->reg);
+			for (i = 0; i < rule->argc; i++)
+				free(rule->argv[i]);
+			free(rule->argv);
 			free(rule->subj);
 			free(rule);
 		}
-		for (i = 0; i < set->name.nstrs; i++)
-			free(set->name.strs[i]);
-		free(set->name.strs);
+		for (i = 0; i < set->argc; i++)
+			free(set->argv[i]);
+		free(set->argv);
 		free(set);
 	}
 }
 
-static void
-freeargs(struct Arg *args, int nargs)
+static char *
+lookupargvar(struct Variable *globals, struct Variable *locals, char *data, char *name)
 {
-	struct Frame *frame;
-	int i;
+	char *value;
 
-	for (i = 0; i < nargs; i++) {
-		while ((frame = TAILQ_FIRST(&args[i].globals)) != NULL) {
-			TAILQ_REMOVE(&args[i].globals, frame, entries);
-			free(frame->name);
-			free(frame->value);
+	value = lookupvar(locals, name);
+	if (value == NULL)
+		value = lookupvar(globals, name);
+	if (value == NULL && strcmp("data", name) == 0)
+		value = data;
+	if (value == NULL)
+		value = "";
+	return value;
+}
+
+static struct Rule *
+matchruleset(struct Ruleset *set, magic_t magic, struct Variable *globals, struct Variable **locals_ret, char *arg, char *actions)
+{
+	struct Variable *locals = NULL;
+	struct Rule *rule = NULL;
+	regmatch_t pmatch[MAXTOKENS];
+	regoff_t beg, len;
+	size_t i;
+	char *value = NULL;
+	const char *filetype;
+	bool match = true;
+
+	for (rule = set->rules; rule != NULL; rule = rule->next) {
+		if (rule->type == RULE_WITH)    /* we handle RULE_WITH later */
+			continue;
+		value = lookupargvar(globals, locals, arg, rule->subj);
+		if (rule->type == RULE_TYPES) {
+			filetype = magic_file(magic, value);
+			if (filetype != NULL)
+				insertvar(&locals, rule->argv[0], estrdup(filetype));
+			else
+				insertvar(&locals, rule->argv[0], NULL);
+			continue;
 		}
-		while ((frame = TAILQ_FIRST(&args[i].locals)) != NULL) {
-			TAILQ_REMOVE(&args[i].locals, frame, entries);
-			free(frame->name);
-			free(frame->value);
+		/* rule->type == RULE_MATCHES */
+		if (regexec(&rule->reg, value, MAXTOKENS, pmatch, 0) != 0) {
+			match = false;
+			continue;
+		}
+		if (pmatch[0].rm_so != 0 || value[pmatch[0].rm_eo] != '\0') {
+			match = false;
+			continue;
+		}
+		for (i = 0; i < rule->reg.re_nsub && i < rule->argc; i++) {
+			beg = pmatch[i + 1].rm_so;
+			len = pmatch[i + 1].rm_eo - beg;
+			if (beg >= 0 && len >= 0) {
+				insertvar(&locals, rule->argv[i], estrndup(value + beg, len));
+			} else {
+				insertvar(&locals, rule->argv[i], NULL);
+			}
 		}
 	}
+	if (locals_ret != NULL)
+		*locals_ret = locals;
+	else
+		freevars(locals, false);
+	if (!match)
+		return NULL;
+	for (rule = set->rules; rule != NULL; rule = rule->next) {
+		if (rule->type != RULE_WITH)    /* we handle RULE_WITH now */
+			continue;
+		if (strstr(actions, rule->subj) != NULL)
+			return rule;
+	}
+	return NULL;
+}
+
+static void
+plumb(struct Rule *rule, struct Argument *args, int argc, bool dryrun)
+{
+	char **newargv = NULL;
+	char **cmd = NULL;
+	char *buf = NULL;
+	char *str, *var, *val;
+	size_t len, k;
+	size_t pos = 0;
+	size_t size;
+	size_t bufsize = 0;
+	int newargc = 0;
+	int i;
+	char ch;
+	bool gotvar = false;
+
+	if (rule == NULL) {
+		warnx("could not find rule for arguments");
+		return;
+	}
+	(void)fprintf(stderr, "plumbing ");
+	for (k = 0; k < rule->set->argc; k++)
+		(void)fprintf(stderr, "%s%s", (k == 0 ? "" : " "), rule->set->argv[k]);
+	(void)fprintf(stderr, "\n");
+	str = rule->argv[rule->argc - 1];
+	len = 0;
+	var = NULL;
+	while (*str != '\0') {
+		if (!gotvar && str[0] == '%' && str[1] == '{') {
+			/* %{VARIABLE} */
+			k = strcspn(str + 2, "}");
+			if (k == 0 || str[k + 2] != '}')
+				goto fallback;
+			str += 2;
+			str[k] = '\0';
+			var = str;
+			str += k + 1;
+			gotvar = true;
+			pos = len;
+			continue;
+		} else if (!gotvar && str[0] == '%') {
+			/* %VARIABLE */
+			k = strspn(str + 1, ALPHANUM);
+			if (k == 0)
+				goto fallback;
+			str++;
+			ch = str[k];
+			str[k] = '\0';
+			var = str;
+			str += k;
+			if (ch != '\0')
+				str[0] = ch;
+			pos = len;
+			gotvar = true;
+			continue;
+		} else if (!gotvar && str[0] == '%' && str[1] == '%') {
+			/* %% */
+			ch = '%';
+			str += 2;
+		} else {
+fallback:
+			/* char */
+			ch = *str;
+			str++;
+		}
+		if (len + 2 > bufsize) {
+			bufsize += len + 128;
+			buf = erealloc(buf, bufsize);
+		}
+		buf[len++] = ch;
+	}
+	if (buf != NULL) {
+		buf[len] = '\0';
+		str = buf;
+	} else {
+		str = "";
+		pos = len = 0;
+	}
+	if (var == NULL) {
+		cmd = ecalloc(rule->argc + 1, sizeof(*cmd));
+		for (k = 0; k < rule->argc - 1; k++)
+			cmd[k] = rule->argv[k];
+		cmd[k++] = str;
+		cmd[k] = NULL;
+		fprintf(stderr, "UVA\n");
+	} else if (var != NULL) {
+		newargc = argc,
+		newargv = ecalloc(newargc, sizeof(*newargv));
+		for (i = 0; i < argc; i++) {
+			val = lookupargvar(args[i].globals, args[i].locals, args[i].data, var);
+			size = len + strlen(val) + 1;
+			newargv[i] = emalloc(size);
+			(void)snprintf(
+				newargv[i],
+				size,
+				"%.*s%s%.*s",
+				(int)pos,
+				str,
+				val,
+				(int)(len - pos),
+				str + pos
+			);
+		}
+		cmd = ecalloc(rule->argc + newargc, sizeof(*cmd));
+		for (k = 0; k < rule->argc - 1; k++)
+			cmd[k] = rule->argv[k];
+		for (k = 0; k < (size_t)newargc; k++)
+			cmd[rule->argc - 1 + k] = newargv[k];
+		cmd[rule->argc + newargc - 1] = NULL;
+	}
+	if (dryrun) {
+		for (k = 0; cmd[k] != NULL; k++) {
+			printf("%s%s", k == 0 ? "" : " ", cmd[k]);
+		}
+	} else if (efork() == 0) {
+		if (posix_spawnp(NULL, cmd[0], NULL, NULL, cmd, environ) != 0)
+			err(EXIT_FAILURE, "posix_spawnp");
+		exit(EXIT_SUCCESS);
+	}
+	free(cmd);
+	free(buf);
+	for (i = 0; i < newargc; i++)
+		free(newargv[i]);
+	free(newargv);
+}
+
+static void
+freeargs(struct Argument *args, int argc)
+{
+	int i;
+
+	for (i = 0; i < argc; i++) {
+		freevars(args[i].globals, false);
+		freevars(args[i].locals, false);
+	}
+	free(args);
 }
 
 int
 main(int argc, char *argv[])
 {
-	struct RulesetQueue sets;
-	struct Ruleset *set, *foundset;
-	struct Arg *args;
+	struct Ruleset *sets, *set;
+	struct Rule *plumbwith = NULL;
+	struct Argument *args;
+	struct Parsectx parse = { 0 };
 	magic_t magic;
+	bool dryrun = false;
+	char *actions = ACTION_OPEN;
+	char *config = NULL;
 	int i, c;
-	int dryrun;
-	char *cmd, *config, *actions;
 
-	actions = ACTION_OPEN;
-	dryrun = 0;
-	config = NULL;
-	if (argc > 0 && argv[0] != NULL) {
-		if ((cmd = strchr(argv[0], '/')) != NULL)
-			cmd++;
-		else
-			cmd = argv[0];
-		if (strcmp(cmd, "open") == 0) {
-			actions = ACTION_OPEN;
-		} else if (strcmp(cmd, "edit") == 0) {
-			actions = ACTION_EDIT;
-		}
-	}
-	while ((c = getopt(argc, argv, "a:c:eon")) != -1) {
-		switch (c) {
-		case 'a':
-			actions = optarg;
-			break;
-		case 'c':
-			config = optarg;
-			break;
-		case 'e':
-			actions = ACTION_EDIT;
-			break;
-		case 'n':
-			dryrun = 1;
-			break;
-		case 'o':
-			actions = ACTION_OPEN;
-			break;
-		default:
-			usage();
-			break;
-		}
+	args = ecalloc(argc, sizeof(*args));
+	while ((c = getopt(argc, argv, "a:c:eon")) != -1) switch (c) {
+	case 'a':
+		actions = optarg;
+		break;
+	case 'c':
+		parse.filename = optarg;
+		break;
+	case 'e':
+		actions = ACTION_EDIT;
+		break;
+	case 'n':
+		dryrun = true;
+		break;
+	case 'o':
+		actions = ACTION_OPEN;
+		break;
+	default:
+		usage();
+		break;
 	}
 	argc -= optind;
 	argv += optind;
 	if (argc == 0)
 		usage();
-	args = ecalloc(argc, sizeof(*args));
-	if ((magic = magic_open(MAGIC_SYMLINK | MAGIC_MIME_TYPE | MAGIC_PRESERVE_ATIME | MAGIC_ERROR)) == NULL)
-		errx(1, "could not get magic cookie");
+	magic = magic_open(MAGIC_SYMLINK | MAGIC_MIME_TYPE | MAGIC_PRESERVE_ATIME | MAGIC_ERROR);
+	if (magic == NULL)
+		errx(EXIT_FAILURE, "could not get magic cookie");
 	if (magic_load(magic, NULL) == -1)
-		errx(1, "could not load magic database");
-	readrules(&sets, config);
-	if (TAILQ_EMPTY(&sets)) {
-		freerules(&sets);
-		free(args);
-		return 1;
-	}
-	foundset = NULL;
+		errx(EXIT_FAILURE, "could not load magic database");
+	if (parse.filename == NULL)
+		parse.filename = config = getconfig();
+	if ((parse.fp = fopen(parse.filename, "r")) == NULL)
+		err(EXIT_FAILURE, "%s", parse.filename);
+	sets = readrules(&parse);
 	for (i = 0; i < argc; i++) {
+		/*
+		 * First we run on the top ruleset, which should contain
+		 * no action rule, so we can fill in the global argument
+		 * variables.
+		 */
 		args[i].data = argv[i];
-		TAILQ_INIT(&args[i].globals);
-		TAILQ_INIT(&args[i].locals);
-		set = TAILQ_FIRST(&sets);
-		(void)matchruleset(set, magic, &args[i], actions, 0);
-		for (set = TAILQ_NEXT(set, entries);
-		     i == 0 && set != NULL;
-		     set = TAILQ_NEXT(set, entries)) {
-			if (matchruleset(set, magic, &args[i], actions, 0)) {
-				foundset = set;
+		args[i].globals = NULL;
+		args[i].locals = NULL;
+		set = sets;
+		(void)matchruleset(set, magic, NULL, &args[i].globals, argv[i], actions);
+		if (i == 0) {
+			/*
+			 * For the first argument, we find a ruleset
+			 * matching it.
+			 */
+			while ((set = set->next) != NULL) {
+				plumbwith = matchruleset(set, magic, args[i].globals, &args[i].locals, argv[i], actions);
+				if (plumbwith != NULL)
+					break;
+				freevars(args[i].locals, false);
+				args[i].locals = NULL;
+			}
+			if (plumbwith == NULL) {
+				break;
+			}
+		} else {
+			/*
+			 * For the following arguments, we check whether
+			 * the it matchs the ruleset of the 1st argument.
+			 */
+			if (plumbwith != matchruleset(plumbwith->set, magic, args[i].globals, &args[i].locals, argv[i], actions)) {
+				freevars(args[i].locals, false);
+				args[i].locals = NULL;
+				plumbwith = NULL;
 				break;
 			}
 		}
-		if (i > 0 && !matchruleset(foundset, magic, &args[i], actions, 1)) {
-			foundset = NULL;
-		}
-		if (foundset == NULL) {
-			break;
-		}
 	}
 	magic_close(magic);
-	if (foundset != NULL)
-		openwith(foundset, args, argc, actions, dryrun);
-	freerules(&sets);
+	plumb(plumbwith, args, argc, dryrun);
+	freerules(sets);
+	free(config);
 	freeargs(args, argc);
-	return (foundset == NULL);
+	return 0;
 }
