@@ -698,7 +698,6 @@ fallback:
 			cmd[k] = rule->argv[k];
 		cmd[k++] = str;
 		cmd[k] = NULL;
-		fprintf(stderr, "UVA\n");
 	} else if (var != NULL) {
 		newargc = argc,
 		newargv = ecalloc(newargc, sizeof(*newargv));
