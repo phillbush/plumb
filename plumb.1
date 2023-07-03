@@ -1,96 +1,59 @@
-.Dd June 26, 2023
+.Dd July 2, 2023
 .Dt PROG 1
 .Os
 .Sh NAME
 .Nm plumb
-.Nd run command on arguments matching rules
+.Nd run best command for given arguments
 .Sh SYNOPSIS
 .Nm
-.Op Fl eon
-.Op Fl a Ar actions
-.Op Fl c Ar config
+.Op Fl Ar action ...
+.Op Cm "--"
 .Ar arg ...
 .Sh DESCRIPTION
 .Nm
-pass the given arguments, as is or modified,
-to the best program associated to the rules the arguments match with.
+passes the given arguments, as is or modified,
+to the best command associated to the rules the arguments match with.
 .Pp
 .Nm
 can be used, for example, to open files or URLs.
 By giving filenames as arguments,
 .Nm
-tries to find the best program to open them
+tries to find the best command to open them
 after matching the filenames with sets of rules in sequence.
 See the section
 .Sx "EXAMPLES"
-for an example on usage.
+for illustration.
 .Pp
-Each set of rule (or ruleset) is associated with a program for a given type of action
+Each set of rule (or ruleset) is associated with a command for a given type of action
 (such as
 .Qq "open"
 or
 .Qq "edit" ) .
-The program for the given action associated with the first ruleset
+The command for the given action associated with the first ruleset
 matching the arguments is the one chosen to be run.
 .Pp
-The options are as follows:
-.Bl -tag -width Ds
-.It Fl a Ar actions
-Comma-delimited list of actions to be try.
-If the matching rule contains one of those actions,
-the first action in the matching rule is performed.
+The first arguments beginning with hyphen
+.Pq Cm "-" ,
+are interpreted as a actions to be try.
+If the matching ruleset contains one of those actions,
+the first action is performed.
 For example,
-.Fl a Cm edit,open
-will try to perform either the edit or the open action on the given arguments.
-.It Fl c Ar config
-Use the file
-.Ar config
-rather than
-.Pa ~/lib/plumb
-as the file containing plumbing rules.
-.It Fl e
-The action is to
-.Qq edit .
-This is the same as the option
-.Fl a Cm edit .
-.It Fl o
-The action is to
-.Qq open .
-This is the same as the option
-.Fl a Cm open .
-This is the default action.
-.It Fl n
-Dry-run.
-When this option is given,
-.Nm
-does not executes the matched program, but prints what would be executed to standard output.
-.El
+.Fl Cm edit Fl Cm open
+will try to perform either the edit or the open action on the next arguments.
 .Pp
-Invoking
+A
+.Cm "--"
+separates actions from actual arguments.
+.Pp
+If no action is provided,
 .Nm
-as
-.Qq open
-(that is, with the basename of its
-.Ic "argv[0]"
-equal to
-.Qq "open" )
-is equivalent to using the
-.Fl o
-option.
-Invoking
-.Nm
-as
-.Qq edit
-is equivalent to using the
-.Fl e
-option.
+acts as if the action
+.Cm "-open"
+were given.
 .Sh USAGE
 .Nm
 reads rules from the file
-.Pa "$HOME/lib/plumb"
-or from the file specified by the
-.Fl c
-command-line option.
+.Pa "$HOME/lib/plumb" .
 Lines with blank and lines beginning with
 .Qq "#" are ignored.
 .Pp
@@ -337,10 +300,6 @@ The following environment variables affect the execution of
 .It Ev HOME
 Path to the directory to search for the file
 .Pa "lib/plumb" .
-Unless the
-.Fl c
-command-line option is used,
-it is an error for this variable to not be set.
 .El
 .Sh FILES
 .Bl -tag -width Ds
@@ -355,35 +314,35 @@ It is an error if no ruleset matches for an argument.
 .Sh EXAMPLES
 The following is the example of a simple configuration file.
 .Bd -literal -offset indent
-HTTP      = '(https?)'
 DATAREGEX = '(([A-Za-z]+):(//)?)?(.*(\e.([A-Za-z0-9]+))?)'
 
-data     matches     $DATAREGEX into _ protocol _ file _ extension
-file     types       mime
+data      matches     $DATAREGEX into _ protocol _ file _ extension
+file      types       mime
 
-rules    for         youtube video
-protocol matches     '(ytdl|'$HTTP')?'
-file     matches     '(.*/)?[A-Za-z0-9_-]{11}'
-open     with        mpv --force-window=immediate -- %data
+rules     for         youtube video
+protocol  matches     '(ytdl|https?)?'
+file      matches     '(.*/)?[A-Za-z0-9_-]{11}'
+open      with        mpv --force-window=immediate -- %data
 
-rules    for         html file
-protocol matches     '(file)?'
-mime     matches     'text/html'
-open     with        seamonkey -- file://%file
-edit     with        $TERMCMD -e $EDITOR -- %file
+rules     for         image file
+protocol  matches     '(file)?'
+mime      imatches    'image/(png|jpe?g|tiff)'
+open      with        display -- %file
+edit      with        gimp -- %file
 
-rules    for          web page
-protocol matches     ${HTTP}?
-file     matches     '(www\e.)?.*\e.(com|net|org|us)'
-open     with        seamonkey -- %data
+rules     for         web page
+protocol  matches     '(https?|file)?'
+extension imatches    'html'
+open      with        seamonkey -- %data
 .Ed
 .Pp
-The static variables
-.Ic HTTP
-and
+This configuration file is interpreted as follows:
+.Bl -bullet
+.It
+The static variable
 .Ic DATAREGEX
-are set to regular expressions to be used later in the config file.
-.Pp
+is set to a regular expression used later in the config file.
+.It
 For each passed argument, the second paragraph sets the argument variables
 .Qq Ic protocol
 to an URI protocol;
@@ -397,16 +356,32 @@ to the mimetype of the value of
 The argument variable
 .Qq Ic data
 is automatically set to the argument itself on each pass.
-.Pp
+.It
 The third paragraph sets rules for opening youtube videos on
 .Xr mpv 1
 using the
 .Ic ytdl
 protocol.
-.Pp
-The fourth paragraph sets rules for opening and editing html files.
-.Pp
+.It
+The fourth paragraph sets rules for opening and editing image files.
+.It
 The fifth paragraph sets rules for opening web pages.
+.El
+.Pp
+With this configuration file, the following command opens
+.Em https://wikipedia.org
+and
+.Em file:///var/www/htdocs/index.html
+on
+.Xr seamonkey 1 :
+.Bd -literal -offset indent
+$ plumb https://wikipedia.org file:///var/www/htdocs/index.html
+.Ed
+.Pp
+The following command opens a PNG file on gimp for editing:
+.Bd -literal -offset indent
+$ plumb -edit /home/user/photo.png
+.Ed
 .Sh SEE ALSO
 .Rs
 .%A "Rob Pike"
@@ -417,5 +392,3 @@ The fifth paragraph sets rules for opening web pages.
 A
 .Nm
 utility appeared in the Plan 9 operating system.
-.Sh BUGS
-Yes.

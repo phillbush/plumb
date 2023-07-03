@@ -1,54 +1,37 @@
 PROG(1)                     General Commands Manual                    PROG(1)
 
 NAME
-     plumb - run command on arguments matching rules
+     plumb - run best command for given arguments
 
 SYNOPSIS
-     plumb [-eon] [-a actions] [-c config] arg ...
+     plumb [-action ...] [--] arg ...
 
 DESCRIPTION
-     plumb pass the given arguments, as is or modified, to the best program
+     plumb passes the given arguments, as is or modified, to the best command
      associated to the rules the arguments match with.
 
      plumb can be used, for example, to open files or URLs.  By giving
-     filenames as arguments, plumb tries to find the best program to open them
+     filenames as arguments, plumb tries to find the best command to open them
      after matching the filenames with sets of rules in sequence.  See the
-     section EXAMPLES for an example on usage.
+     section EXAMPLES for illustration.
 
-     Each set of rule (or ruleset) is associated with a program for a given
-     type of action (such as "open" or "edit").  The program for the given
+     Each set of rule (or ruleset) is associated with a command for a given
+     type of action (such as "open" or "edit").  The command for the given
      action associated with the first ruleset matching the arguments is the
      one chosen to be run.
 
-     The options are as follows:
+     The first arguments beginning with hyphen (-), are interpreted as a
+     actions to be try.  If the matching ruleset contains one of those
+     actions, the first action is performed.  For example, -edit -open will
+     try to perform either the edit or the open action on the next arguments.
 
-     -a actions
-             Comma-delimited list of actions to be try.  If the matching rule
-             contains one of those actions, the first action in the matching
-             rule is performed.  For example, -a edit,open will try to perform
-             either the edit or the open action on the given arguments.
+     A -- separates actions from actual arguments.
 
-     -c config
-             Use the file config rather than ~/lib/plumb as the file
-             containing plumbing rules.
-
-     -e      The action is to "edit".  This is the same as the option -a edit.
-
-     -o      The action is to "open".  This is the same as the option -a open.
-             This is the default action.
-
-     -n      Dry-run.  When this option is given, plumb does not executes the
-             matched program, but prints what would be executed to standard
-             output.
-
-     Invoking plumb as "open" (that is, with the basename of its argv[0] equal
-     to "open") is equivalent to using the -o option.  Invoking plumb as
-     "edit" is equivalent to using the -e option.
+     If no action is provided, plumb acts as if the action -open were given.
 
 USAGE
-     plumb reads rules from the file $HOME/lib/plumb or from the file
-     specified by the -c command-line option.  Lines with blank and lines
-     beginning with "# are ignored."
+     plumb reads rules from the file $HOME/lib/plumb.  Lines with blank and
+     lines beginning with "# are ignored."
 
      Each non ignored line can be either a static variable assignment or can
      be one of the four following types, named after the second word in the
@@ -214,9 +197,7 @@ USAGE
 ENVIRONMENT
      The following environment variables affect the execution of plumb.
 
-     HOME    Path to the directory to search for the file lib/plumb.  Unless
-             the -c command-line option is used, it is an error for this
-             variable to not be set.
+     HOME    Path to the directory to search for the file lib/plumb.
 
 FILES
      $HOME/lib/plumb
@@ -230,43 +211,54 @@ EXIT STATUS
 EXAMPLES
      The following is the example of a simple configuration file.
 
-           HTTP      = '(https?)'
            DATAREGEX = '(([A-Za-z]+):(//)?)?(.*(\.([A-Za-z0-9]+))?)'
 
-           data     matches     $DATAREGEX into _ protocol _ file _ extension
-           file     types       mime
+           data      matches     $DATAREGEX into _ protocol _ file _ extension
+           file      types       mime
 
-           rules    for         youtube video
-           protocol matches     '(ytdl|'$HTTP')?'
-           file     matches     '(.*/)?[A-Za-z0-9_-]{11}'
-           open     with        mpv --force-window=immediate -- %data
+           rules     for         youtube video
+           protocol  matches     '(ytdl|https?)?'
+           file      matches     '(.*/)?[A-Za-z0-9_-]{11}'
+           open      with        mpv --force-window=immediate -- %data
 
-           rules    for         html file
-           protocol matches     '(file)?'
-           mime     matches     'text/html'
-           open     with        seamonkey -- file://%file
-           edit     with        $TERMCMD -e $EDITOR -- %file
+           rules     for         image file
+           protocol  matches     '(file)?'
+           mime      imatches    'image/(png|jpe?g|tiff)'
+           open      with        display -- %file
+           edit      with        gimp -- %file
 
-           rules    for          web page
-           protocol matches     ${HTTP}?
-           file     matches     '(www\.)?.*\.(com|net|org|us)'
-           open     with        seamonkey -- %data
+           rules     for         web page
+           protocol  matches     '(https?|file)?'
+           extension imatches    'html'
+           open      with        seamonkey -- %data
 
-     The static variables HTTP and DATAREGEX are set to regular expressions to
-     be used later in the config file.
+     This configuration file is interpreted as follows:
 
-     For each passed argument, the second paragraph sets the argument
-     variables "protocol" to an URI protocol; "file" to the argument without
-     the protocol; "extension" to a file extension; and "mime" to the mimetype
-     of the value of "file".  The argument variable "data" is automatically
-     set to the argument itself on each pass.
+     o   The static variable DATAREGEX is set to a regular expression used
+         later in the config file.
 
-     The third paragraph sets rules for opening youtube videos on mpv(1) using
-     the ytdl protocol.
+     o   For each passed argument, the second paragraph sets the argument
+         variables "protocol" to an URI protocol; "file" to the argument
+         without the protocol; "extension" to a file extension; and "mime" to
+         the mimetype of the value of "file".  The argument variable "data" is
+         automatically set to the argument itself on each pass.
 
-     The fourth paragraph sets rules for opening and editing html files.
+     o   The third paragraph sets rules for opening youtube videos on mpv(1)
+         using the ytdl protocol.
 
-     The fifth paragraph sets rules for opening web pages.
+     o   The fourth paragraph sets rules for opening and editing image files.
+
+     o   The fifth paragraph sets rules for opening web pages.
+
+     With this configuration file, the following command opens
+     https://wikipedia.org and file:///var/www/htdocs/index.html on
+     seamonkey(1):
+
+           $ plumb https://wikipedia.org file:///var/www/htdocs/index.html
+
+     The following command opens a PNG file on gimp for editing:
+
+           $ plumb -edit /home/user/photo.png
 
 SEE ALSO
      Rob Pike, Plumbing and Other Utilities, Bell Laboratories.
@@ -274,7 +266,4 @@ SEE ALSO
 HISTORY
      A plumb utility appeared in the Plan 9 operating system.
 
-BUGS
-     Yes.
-
-UNIX                             June 26, 2023                            UNIX
+UNIX                             July 2, 2023                             UNIX
