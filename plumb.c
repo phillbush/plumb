@@ -612,7 +612,7 @@ static void
 plumb(struct Rule *rule, struct Argument *args, int argc)
 {
 	char **newargv = NULL;
-	char **cmd = NULL;
+	char **cmd, **p;
 	char *buf = NULL;
 	char *str, *var, *val;
 	size_t len, k;
@@ -628,6 +628,10 @@ plumb(struct Rule *rule, struct Argument *args, int argc)
 		warnx("could not find rule for arguments");
 		return;
 	}
+
+	/*
+	 * Anounce the ruleset we are plumbing.
+	 */
 	(void)fprintf(stderr, "plumbing ");
 	for (k = 0; k < rule->set->argc; k++) {
 		(void)fprintf(
@@ -638,6 +642,11 @@ plumb(struct Rule *rule, struct Argument *args, int argc)
 		);
 	}
 	(void)fprintf(stderr, "\n");
+
+	/*
+	 * Find the substring "%var" in argv[i], where i is the last
+	 * element of argv[].
+	 */
 	str = rule->argv[rule->argc - 1];
 	len = 0;
 	var = NULL;
@@ -692,13 +701,46 @@ fallback:
 		str = "";
 		pos = len = 0;
 	}
-	if (var == NULL) {
-		cmd = ecalloc(rule->argc + 1, sizeof(*cmd));
-		for (k = 0; k < rule->argc - 1; k++)
-			cmd[k] = rule->argv[k];
-		cmd[k++] = str;
-		cmd[k] = NULL;
-	} else if (var != NULL) {
+
+	/*
+	 * Create the command cmd[] to be spawned.
+	 *
+	 * If rule->argv[rule->argc - 1] (the last argument of the
+	 * plumbing rule) does not contain the "%var" substring, cmd[]
+	 * is exactly the plumbing rule itself (cmd == rule->argv).
+	 *
+	 * However, if rule->argv[rule->argc - 1] (the last argument of
+	 * the plumbing rule) contains the "%var" substring, cmd[] is
+	 * composed of:
+	 * - The strings rule->argv[0] to rule->argv[rule->argc - 2].
+	 * - n strings (n is the number of command-line arguments given
+	 *   to plumb), each one equal to rule->argv[rule->argc - 1],
+	 *   but with the "%var" substring replaced with the value that
+	 *   "%var" has for each command-line argument.
+	 *
+	 * For example, if plumb is invoked as
+	 *
+	 *      $ plumb -edit foo.png file:///var/www/bar.jpg
+	 *
+	 * And the rule for editing image files is
+	 *
+	 *      gimp -s -- %path
+	 *
+	 * And the value of the variable %path for the first argument is
+	 *
+	 *      foo.png
+	 *
+	 * And the value of %path for the second argument is
+	 *
+	 *      /var/www/bar.jpg
+	 *
+	 * Then, the command to be executed is
+	 *
+	 *      gimp -s -- foo.png /var/www/bar.jpg
+	 */
+	p = NULL;
+	cmd = rule->argv;
+	if (var != NULL) {
 		newargc = argc,
 		newargv = ecalloc(newargc, sizeof(*newargv));
 		for (i = 0; i < argc; i++) {
@@ -721,19 +763,21 @@ fallback:
 				str + pos
 			);
 		}
-		cmd = ecalloc(rule->argc + newargc, sizeof(*cmd));
+		p = ecalloc(rule->argc + newargc, sizeof(*p));
+		cmd = p;
 		for (k = 0; k < rule->argc - 1; k++)
 			cmd[k] = rule->argv[k];
 		for (k = 0; k < (size_t)newargc; k++)
 			cmd[rule->argc - 1 + k] = newargv[k];
 		cmd[rule->argc + newargc - 1] = NULL;
 	}
+
 	if (efork() == 0) {
 		if (posix_spawnp(NULL, cmd[0], NULL, NULL, cmd, environ))
 			err(EXIT_FAILURE, "posix_spawnp");
 		exit(EXIT_SUCCESS);
 	}
-	free(cmd);
+	free(p);
 	free(buf);
 	for (i = 0; i < newargc; i++)
 		free(newargv[i]);
