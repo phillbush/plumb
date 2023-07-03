@@ -187,7 +187,7 @@ newrule(struct Parsectx *parse, char *toks[], size_t ntoks)
 	enum Type type;
 	char errbuf[1024];
 
-	assert(ntoks > 2);      /* we handle ntoks <= 2 before */
+	assert(ntoks > 2);      /* we have handled ntoks <= 2 before */
 	flags = REG_EXTENDED;
 	if (strcmp(toks[1], "matches") == 0) {
 		type = RULE_MATCHES;
