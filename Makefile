@@ -13,7 +13,7 @@ INCS = -I/usr/local/include
 bindir = ${DESTDIR}${PREFIX}/bin
 mandir = ${DESTDIR}${MANPREFIX}/man1
 
-all: ${PROG} README
+all: ${PROG}
 
 ${PROG}: ${OBJS}
 	${CC} -o $@ ${OBJS} ${LIBS} ${LDFLAGS}

@@ -19,7 +19,9 @@
 #define MAXTOKENS       128
 #define RULESPATH       "/lib/plumb"
 #define HOME            "HOME"
-#define DEF_ACTION      "-open"
+#define OPEN_ACTION     "open"
+#define EDIT_ACTION     "edit"
+#define DEF_ACTION      OPEN_ACTION
 #define ALPHANUM        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"
 
 struct Variable {
@@ -598,7 +600,7 @@ matchruleset(struct Ruleset *set, char *arg,
 		if (rule->type != RULE_WITH)
 			continue;
 		for (j = 0; j < nactions; j++) {
-			if (strcmp(&actions[j][1], rule->subj) == 0) {
+			if (strcmp(actions[j], rule->subj) == 0) {
 				return rule;
 			}
 		}
@@ -768,13 +770,19 @@ main(int argc, char *argv[])
 	nactions = 0;
 	for (i = 1; i < argc; i++) {
 		span = strspn(argv[i], "-");
-		if (span == 0)                  /* arg is not -something */
+		if (span == 0)                       /* argv[i] is not -word */
 			break;
-		if (argv[i][span] == '\0') {    /* arg is -- */
+		if (argv[i][span] == '\0') {         /* argv[i] is -- */
 			i++;
 			break;
 		}
-		nactions++;                     /* arg is -something */
+		if (strcmp(argv[i], "-o") == 0)      /* argv[i] is -o */
+			argv[i] = OPEN_ACTION;
+		else if (strcmp(argv[i], "-e") == 0) /* argv[i] is -e */
+			argv[i] = EDIT_ACTION;
+		else                                 /* argv[i] is -word */
+			argv[i]++;
+		nactions++;
 	}
 	argc -= i;
 	argv += i;

@@ -38,8 +38,18 @@ are interpreted as a actions to be try.
 If the matching ruleset contains one of those actions,
 the first action is performed.
 For example,
-.Fl Cm edit Fl Cm open
-will try to perform either the edit or the open action on the next arguments.
+.Fl edit Fl open
+will try to perform either the edit or the open action on the following arguments.
+.Pp
+The actions
+.Fl o
+and
+.Fl e
+are equivalent to
+.Fl open
+and
+.Fl edit ,
+respectively.
 .Pp
 A
 .Cm "--"

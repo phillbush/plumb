@@ -23,7 +23,10 @@ DESCRIPTION
      The first arguments beginning with hyphen (-), are interpreted as a
      actions to be try.  If the matching ruleset contains one of those
      actions, the first action is performed.  For example, -edit -open will
-     try to perform either the edit or the open action on the next arguments.
+     try to perform either the edit or the open action on the following
+     arguments.
+
+     The actions -o and -e are equivalent to -open and -edit, respectively.
 
      A -- separates actions from actual arguments.
 
