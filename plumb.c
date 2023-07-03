@@ -19,7 +19,7 @@
 #define MAXTOKENS       128
 #define RULESPATH       "/lib/plumb"
 #define HOME            "HOME"
-#define DEF_ACTIONS     "open"
+#define DEF_ACTION      "-open"
 #define ALPHANUM        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"
 
 struct Variable {
@@ -780,6 +780,10 @@ main(int argc, char *argv[])
 	argv += i;
 	if (argc == 0)
 		usage();
+	if (nactions == 0) {
+		actions = (char *[]){ DEF_ACTION };
+		nactions = 1;
+	}
 	args = ecalloc(argc, sizeof(*args));
 	magic = magic_open(
 		MAGIC_SYMLINK | MAGIC_MIME_TYPE |
