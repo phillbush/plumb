@@ -59,6 +59,7 @@ struct Ruleset {
 			RULE_MATCHES,
 			RULE_TYPES,
 			RULE_WITH,
+			RULE_AT,
 		} type;
 		regex_t reg;            /* only used in "matches" rules */
 		char **argv;
@@ -198,6 +199,8 @@ newrule(struct Parsectx *parse, char *toks[], size_t ntoks)
 		type = RULE_TYPES;
 	} else if (strcmp(toks[1], "with") == 0) {
 		type = RULE_WITH;
+	} else if (strcmp(toks[1], "at") == 0) {
+		type = RULE_AT;
 	} else {
 		syntaxerr(parse, "unknown predicate", toks[1]);
 		return NULL;
@@ -224,8 +227,9 @@ newrule(struct Parsectx *parse, char *toks[], size_t ntoks)
 		}
 		break;
 	case RULE_TYPES:
+	case RULE_AT:
 		if (ntoks != 3) {
-			syntaxerr(parse, "improper \"types\" rule", NULL);
+			syntaxerr(parse, "improper number of arguments", NULL);
 			return NULL;
 		}
 		break;
@@ -568,6 +572,14 @@ matchruleset(struct Ruleset *set, char *arg,
 			} else {
 				insertvar(&locals, rule->argv[0], NULL);
 			}
+			continue;
+		}
+		if (rule->type == RULE_AT) {
+			insertvar(
+				&locals,
+				rule->argv[0],
+				realpath(value, NULL)   /* freed later */
+			);
 			continue;
 		}
 		/* rule->type == RULE_MATCHES */

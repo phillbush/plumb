@@ -82,6 +82,9 @@ and, optionally, setting new variables when the matching occurs.
 .It Qq "types"
 A line testing the existence and type of a file,
 and assigning this information to a new variable.
+.It Qq "at"
+A line testing the existence of a file,
+and assigning its absolute path to a new variable.
 .It Qq "with"
 A line describing the command to be open if the conditions in the same ruleset matches.
 .El
@@ -104,8 +107,9 @@ for more information on static variables.
 Argument variables are assigned with a
 .Qq "matches" ,
 .Qq "imatches" ,
+.Qq "types" ,
 or a
-.Qq "types"
+.Qq "at"
 line.
 Such variables can be expanded into various words
 (one for each argument passed to
@@ -239,18 +243,34 @@ data matches '(([^/]*/)*)([^/]*(\e.([A-Za-z0-9]+)?))' _ _ base extension
 .Ss TYPES-lines
 Lines whose second word is
 .Qq "types"
-must have the name of a argument variable as subject,
-and the name of another argument variable as single argument.
-The subject names a value for a existing file whose mimetype is assigned
+must have the name of an argument variable as subject,
+and the name of another argument variable as its sole argument.
+The subject names a value for an existing file whose mimetype is assigned
 to the argument variable passed as argument.
 .Pp
 For example, the following line is a three-word assignment that says
 that the mimetype of the file named in the argument variable
 .Ic "data"
 must be assigned to the argument variable
-.Ic "mime".
+.Ic "mime" .
 .Bd -literal -offset indent
 data types mime
+.Ed
+.Ss AT-lines
+Lines whose second word is
+.Qq "at"
+must have the name of an argument variable as subject,
+and the name of another argument variable as its sole argument.
+The subject names a value for an existing file whose real absolute path is assigned
+to the argument variable passed as argument.
+.Pp
+For example, the following line is a three-word assignment that says
+that the absolute path of the file named in the argument variable
+.Ic "data"
+must be assigned to the argument variable
+.Ic "path" .
+.Bd -literal -offset indent
+data at path
 .Ed
 .Ss WITH-lines
 Lines whose second word is
@@ -328,6 +348,7 @@ DATAREGEX = '(([A-Za-z]+):(//)?)?(.*(\e.([A-Za-z0-9]+))?)'
 
 data      matches     $DATAREGEX into _ protocol _ file _ extension
 file      types       mime
+file      at          path
 
 rules     for         youtube video
 protocol  matches     '(ytdl|https?)?'
@@ -337,7 +358,7 @@ open      with        mpv --force-window=immediate -- %data
 rules     for         image file
 protocol  matches     '(file)?'
 mime      imatches    'image/(png|jpe?g|tiff)'
-open      with        display -- %file
+open      with        display -- %path
 edit      with        gimp -- %file
 
 rules     for         web page
