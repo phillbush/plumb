@@ -1,3 +1,4 @@
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 
@@ -552,6 +553,7 @@ matchruleset(struct Ruleset *set, char *arg,
 {
 	struct Variable *locals = NULL;
 	struct Rule *rule = NULL;
+	struct stat sb;
 	regmatch_t pmatch[MAXTOKENS];
 	regoff_t beg, len;
 	size_t i;
@@ -565,7 +567,12 @@ matchruleset(struct Ruleset *set, char *arg,
 			continue;       /* we handle RULE_WITH later */
 		value = lookupargvar(globals, locals, arg, rule->subj);
 		if (rule->type == RULE_TYPES) {
-			filetype = magic_file(magic, value);
+			if (stat(value, &sb) == -1)
+				filetype = NULL;
+			else if (S_ISDIR(sb.st_mode))
+				filetype = "inode/directory";
+			else
+				filetype = magic_file(magic, value);
 			if (filetype != NULL) {
 				newstr = estrdup(filetype);
 				insertvar(&locals, rule->argv[0], newstr);
